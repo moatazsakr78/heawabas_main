@@ -1,0 +1,16 @@
+[
+  {
+    "id": "1",
+    "name": "الإلكترونيات",
+    "slug": "electronics",
+    "image": "https://via.placeholder.com/300",
+    "description": "قسم الإلكترونيات يضم أحدث الأجهزة الإلكترونية."
+  },
+  {
+    "id": "2",
+    "name": "الأجهزة المنزلية",
+    "slug": "home-appliances",
+    "image": "https://via.placeholder.com/300",
+    "description": "قسم الأجهزة المنزلية يحتوي على جميع الأدوات المنزلية الضرورية."
+  }
+] 

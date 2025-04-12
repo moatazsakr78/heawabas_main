@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1",
+    "name": "منتج 1",
+    "description": "وصف المنتج 1",
+    "shortDescription": "وصف مختصر للمنتج 1",
+    "category": { "id": "1", "name": "الإلكترونيات", "slug": "electronics" },
+    "images": ["https://via.placeholder.com/300"],
+    "isNew": true,
+    "features": ["ميزة 1", "ميزة 2"],
+    "specifications": { "اللون": "أسود", "الحجم": "كبير" },
+    "createdAt": "2023-10-01T00:00:00Z"
+  },
+  {
+    "id": "2",
+    "name": "منتج 2",
+    "description": "وصف المنتج 2",
+    "shortDescription": "وصف مختصر للمنتج 2",
+    "category": { "id": "2", "name": "الأجهزة المنزلية", "slug": "home-appliances" },
+    "images": ["https://via.placeholder.com/300"],
+    "isNew": false,
+    "features": ["ميزة 1", "ميزة 2"],
+    "specifications": { "اللون": "أبيض", "الوزن": "خفيف" },
+    "createdAt": "2023-09-15T00:00:00Z"
+  }
+] 
