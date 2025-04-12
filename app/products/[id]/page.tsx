@@ -6,7 +6,7 @@ import { Product } from '@/types';
 import { useParams } from 'next/navigation';
 import ProductGrid from '@/components/products/ProductGrid';
 import { loadData } from '@/lib/localStorage';
-import { syncProductsFromSupabase, isOnline } from '@/lib/supabase';
+import { loadProductsFromSupabase, isOnline } from '@/lib/supabase';
 
 type Props = {
   params: { id: string };
@@ -17,20 +17,47 @@ export default function ProductPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
+  const [showSyncMessage, setShowSyncMessage] = useState(false);
 
   useEffect(() => {
     const loadProductData = async () => {
       try {
         setLoading(true);
         
-        // محاولة مزامنة البيانات من Supabase إذا كان متصلاً بالإنترنت
+        // محاولة تحميل البيانات مباشرة من السيرفر إذا كان متصلاً بالإنترنت
         if (isOnline()) {
           try {
-            await syncProductsFromSupabase();
+            console.log('Loading product data from server...');
+            const serverProducts = await loadProductsFromSupabase();
+            
+            if (serverProducts && serverProducts.length > 0) {
+              // البحث عن المنتج في بيانات السيرفر
+              const foundProduct = serverProducts.find((p: Product) => p.id === params.id);
+              
+              if (foundProduct) {
+                console.log('Found product on server:', foundProduct.name);
+                setProduct(foundProduct);
+                
+                // تحديث التخزين المحلي
+                localStorage.setItem('products', JSON.stringify(serverProducts));
+                setShowSyncMessage(true);
+                setTimeout(() => setShowSyncMessage(false), 3000);
+                
+                setLoading(false);
+                return;
+              } else {
+                console.log('Product not found on server. ID:', params.id);
+              }
+            } else {
+              console.log('No products found on server');
+            }
           } catch (error) {
-            console.error('Error syncing products from Supabase:', error);
+            console.error('Error loading from server:', error);
           }
         }
+        
+        // إذا لم نتمكن من العثور على المنتج على السيرفر، نحاول البيانات المحلية
+        console.log('Trying local data...');
         
         // محاولة استرجاع البيانات من التخزين الدائم
         const savedProducts = await loadData('products');
@@ -41,12 +68,14 @@ export default function ProductPage() {
         // إذا وجدنا منتجات من التخزين الدائم، نستخدمها
         if (savedProducts !== null) {
           localProducts = savedProducts;
+          console.log('Using products from persistent storage');
         } else {
           // احتياطياً، نحاول من localStorage العادي
           try {
             const productsFromLS = localStorage.getItem('products');
             if (productsFromLS) {
               localProducts = JSON.parse(productsFromLS);
+              console.log('Using products from localStorage');
             }
           } catch (error) {
             console.error('Error parsing products from localStorage:', error);
@@ -58,13 +87,21 @@ export default function ProductPage() {
           const foundProduct = localProducts.find((p: Product) => p.id === params.id);
           
           if (foundProduct) {
+            console.log('Found product in local storage:', foundProduct.name);
             setProduct(foundProduct);
+          } else {
+            console.log('Product not found locally. ID:', params.id);
+            setProduct(null);
           }
+        } else {
+          console.log('No products found locally');
+          setProduct(null);
         }
         
         setLoading(false);
       } catch (error) {
         console.error('Error loading product:', error);
+        setProduct(null);
         setLoading(false);
       }
     };
@@ -79,9 +116,10 @@ export default function ProductPage() {
     
     const handleOnlineStatusChange = () => {
       if (isOnline()) {
-        syncProductsFromSupabase().then(() => {
-          setLastUpdate(Date.now());
-        });
+        console.log('Connection restored. Reloading product...');
+        loadProductData();
+      } else {
+        console.log('Connection lost. Using local data.');
       }
     };
     
@@ -122,6 +160,12 @@ export default function ProductPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {showSyncMessage && (
+        <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-md text-sm">
+          تم تحديث البيانات من الخادم المركزي
+        </div>
+      )}
+      
       <div className="mb-4">
         <Link 
           href="/products"

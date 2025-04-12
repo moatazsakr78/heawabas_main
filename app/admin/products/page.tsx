@@ -57,10 +57,16 @@ export default function AdminProducts() {
   // دالة للتعامل مع تغييرات الاتصال بالإنترنت
   const handleOnlineStatusChange = () => {
     if (isOnline()) {
+      console.log('Connection restored. Reloading admin data...');
       // محاولة مزامنة البيانات عند عودة الاتصال
-      syncProductsFromSupabase().then(() => {
-        loadProductsData();
+      loadProductsData();
+    } else {
+      console.log('Connection lost. Using local data only.');
+      setNotification({
+        message: 'تم فقد الاتصال بالإنترنت. سيتم حفظ التغييرات محلياً فقط.',
+        type: 'error'
       });
+      setTimeout(() => setNotification(null), 3000);
     }
   };
 
@@ -99,45 +105,70 @@ export default function AdminProducts() {
       // محاولة تحميل المنتجات من Supabase أولاً إذا كان متصلاً بالإنترنت
       if (isOnline()) {
         try {
+          console.log('Loading products from server...');
           const onlineProducts = await loadProductsFromSupabase();
           if (onlineProducts && onlineProducts.length > 0) {
+            console.log('Successfully loaded products from server:', onlineProducts.length);
             setProducts(onlineProducts);
             // تحديث التخزين المحلي
             saveData('products', onlineProducts);
             localStorage.setItem('products', JSON.stringify(onlineProducts));
             setIsLoading(false);
+            
+            setNotification({
+              message: 'تم تحميل البيانات من السيرفر بنجاح',
+              type: 'success'
+            });
+            setTimeout(() => setNotification(null), 3000);
+            
             return;
+          } else {
+            console.log('No products found on server, checking local data');
           }
         } catch (error) {
           console.error('Error loading products from Supabase:', error);
           // استمر في استخدام التخزين المحلي
         }
+      } else {
+        console.log('Device is offline. Using local data only.');
       }
       
       // محاولة استرجاع البيانات باستخدام وظيفة التخزين المحلي الدائم
       const savedProducts = await loadData('products');
       
       if (savedProducts && Array.isArray(savedProducts)) {
+        console.log('Using data from persistent storage:', savedProducts.length);
         setProducts(savedProducts);
         
-        // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
+        // إظهار رسالة توضح أن البيانات من التخزين المحلي
         if (isOnline()) {
-          try {
-            await saveProductsToSupabase(savedProducts);
-          } catch (error) {
-            console.error('Error syncing to Supabase:', error);
-          }
+          setNotification({
+            message: 'لم يتم العثور على بيانات في السيرفر. سيتم استخدام البيانات المحلية.',
+            type: 'error'
+          });
+          setTimeout(() => setNotification(null), 3000);
         }
       } else {
         // التحقق من وجود البيانات في localStorage التقليدي
         const localStorageProducts = localStorage.getItem('products');
         if (localStorageProducts) {
+          console.log('Using data from localStorage');
           const parsedProducts = JSON.parse(localStorageProducts);
           // حفظ البيانات في التخزين الدائم للمرات القادمة
           saveData('products', parsedProducts);
           setProducts(parsedProducts);
+          
+          // إظهار رسالة إضافية
+          if (isOnline()) {
+            setNotification({
+              message: 'لم يتم العثور على بيانات في السيرفر. سيتم استخدام البيانات المحلية.',
+              type: 'error'
+            });
+            setTimeout(() => setNotification(null), 3000);
+          }
         } else {
           // بيانات افتراضية إذا لم يتم العثور على أي بيانات
+          console.log('Using default product data');
           const defaultProducts = [
             {
               id: '1',
@@ -167,10 +198,29 @@ export default function AdminProducts() {
           // حفظ البيانات الافتراضية في نظام التخزين الدائم
           saveData('products', defaultProducts);
           setProducts(defaultProducts);
+          
+          // مزامنة البيانات الافتراضية مع السيرفر إذا كان متصلاً
+          if (isOnline()) {
+            try {
+              await saveProductsToSupabase(defaultProducts);
+              setNotification({
+                message: 'تم تهيئة قاعدة البيانات بمنتجات افتراضية',
+                type: 'success'
+              });
+              setTimeout(() => setNotification(null), 3000);
+            } catch (error) {
+              console.error('Error initializing Supabase with default products:', error);
+            }
+          }
         }
       }
     } catch (error) {
       console.error('Error loading products:', error);
+      setNotification({
+        message: 'حدث خطأ أثناء تحميل المنتجات',
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 3000);
     } finally {
       setIsLoading(false);
     }
@@ -179,6 +229,7 @@ export default function AdminProducts() {
   // تعديل وظيفة حفظ المنتجات لاستخدام التخزين الدائم والمزامنة مع Supabase
   const saveProducts = async (newProducts: Product[]) => {
     setProducts(newProducts);
+    setIsLoading(true);
     
     // حفظ البيانات في نظام التخزين الدائم
     saveData('products', newProducts);
@@ -187,9 +238,13 @@ export default function AdminProducts() {
     localStorage.setItem('products', JSON.stringify(newProducts));
     
     // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
+    let syncSuccess = false;
     if (isOnline()) {
       try {
+        console.log('Syncing products to server...');
         await saveProductsToSupabase(newProducts);
+        syncSuccess = true;
+        console.log('Successfully synced products to server');
       } catch (error) {
         console.error('Error saving to Supabase:', error);
         setNotification({
@@ -197,7 +252,6 @@ export default function AdminProducts() {
           type: 'error'
         });
         setTimeout(() => setNotification(null), 3000);
-        return;
       }
     }
     
@@ -212,7 +266,7 @@ export default function AdminProducts() {
       }
       
       setNotification({
-        message: isOnline() 
+        message: isOnline() && syncSuccess 
           ? 'تم حفظ التغييرات بنجاح! التغييرات ستظهر في جميع الأجهزة.' 
           : 'تم حفظ التغييرات محليًا فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
         type: 'success'
@@ -228,6 +282,8 @@ export default function AdminProducts() {
         message: 'حدثت مشكلة أثناء حفظ التغييرات',
         type: 'error'
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -380,10 +436,14 @@ export default function AdminProducts() {
     setIsSyncing(true);
     
     try {
+      console.log('Starting sync with server...');
+      
       // جلب البيانات من السيرفر
       const serverProducts = await loadProductsFromSupabase();
       
       if (serverProducts && serverProducts.length > 0) {
+        console.log('Found data on server. Updating local data...');
+        
         // تحديث واجهة المستخدم
         setProducts(serverProducts);
         // تحديث التخزين المحلي
@@ -395,6 +455,8 @@ export default function AdminProducts() {
           type: 'success'
         });
       } else {
+        console.log('No data found on server. Uploading local data...');
+        
         // إذا لم تكن هناك بيانات على السيرفر، قم برفع البيانات المحلية
         await saveProductsToSupabase(products);
         
