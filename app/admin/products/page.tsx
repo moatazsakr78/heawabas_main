@@ -231,6 +231,7 @@ export default function AdminProducts() {
       // الحفاظ على تاريخ الإنشاء الأصلي إذا كان موجودًا، وإلا تعيين تاريخ حالي
       const updatedProduct = {
         ...formData,
+        id: currentProduct?.id || Date.now().toString(),
         createdAt: currentProduct?.createdAt || new Date().toISOString(),
         boxQuantity: parseInt(formData.boxQuantity.toString()) || 0,
         piecePrice: parseFloat(formData.piecePrice.toString()) || 0,
