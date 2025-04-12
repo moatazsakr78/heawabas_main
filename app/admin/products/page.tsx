@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage } from 'react-icons/fi';
 import { v4 as uuidv4 } from 'uuid';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
+import { getCategories } from '@/lib/data';
+import { Category } from '@/lib/data';
 
 interface Product {
   id: string;
@@ -16,10 +18,12 @@ interface Product {
   imageUrl: string;
   isNew: boolean;
   createdAt: string;
+  categoryId?: string;
 }
 
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,11 +38,40 @@ export default function AdminProducts() {
     boxPrice: '',
     imageUrl: '',
     isNew: false,
+    categoryId: '',
   });
 
   useEffect(() => {
     loadProductsData();
+    loadCategoriesData();
   }, []);
+
+  // تحميل بيانات الفئات
+  const loadCategoriesData = async () => {
+    try {
+      // محاولة استرجاع الفئات من التخزين الدائم
+      const savedCategories = await loadData('categories');
+      
+      if (savedCategories && Array.isArray(savedCategories)) {
+        // تنسيق البيانات
+        const formattedCategories = savedCategories.map((cat: any) => ({
+          id: String(cat.id),
+          name: cat.name,
+          slug: cat.slug || '',
+          image: cat.imageUrl || cat.image || '',
+          description: cat.description || 'وصف القسم'
+        }));
+        setCategories(formattedCategories);
+      } else {
+        // استخدام دالة getCategories كبديل
+        setCategories(getCategories());
+      }
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      // استخدام دالة getCategories كبديل
+      setCategories(getCategories());
+    }
+  };
 
   // تحميل بيانات المنتجات بطريقة تضمن الثبات
   const loadProductsData = async () => {
@@ -70,6 +103,7 @@ export default function AdminProducts() {
               imageUrl: 'https://via.placeholder.com/300',
               isNew: true,
               createdAt: new Date().toISOString(),
+              categoryId: '1',
             },
             {
               id: '2',
@@ -82,6 +116,7 @@ export default function AdminProducts() {
               imageUrl: 'https://via.placeholder.com/300',
               isNew: true,
               createdAt: new Date().toISOString(),
+              categoryId: '2',
             },
           ];
           // حفظ البيانات الافتراضية في نظام التخزين الدائم
@@ -140,6 +175,7 @@ export default function AdminProducts() {
       boxPrice: '',
       imageUrl: '',
       isNew: false,
+      categoryId: '',
     });
     setIsModalOpen(true);
   };
@@ -155,6 +191,7 @@ export default function AdminProducts() {
       boxPrice: product.boxPrice.toString(),
       imageUrl: product.imageUrl,
       isNew: product.isNew,
+      categoryId: product.categoryId || '',
     });
     setIsModalOpen(true);
   };
@@ -183,6 +220,7 @@ export default function AdminProducts() {
               boxPrice: parseFloat(formData.boxPrice),
               imageUrl: formData.imageUrl,
               isNew: formData.isNew,
+              categoryId: formData.categoryId,
             }
           : prod
       );
@@ -200,6 +238,7 @@ export default function AdminProducts() {
         imageUrl: formData.imageUrl,
         isNew: formData.isNew,
         createdAt: new Date().toISOString(),
+        categoryId: formData.categoryId,
       };
       saveProducts([...products, newProduct]);
     }
@@ -237,6 +276,7 @@ export default function AdminProducts() {
         piecePrice: parseFloat(formData.piecePrice.toString()) || 0,
         packPrice: parseFloat(formData.packPrice.toString()) || 0,
         boxPrice: parseFloat(formData.boxPrice.toString()) || 0,
+        categoryId: formData.categoryId,
       };
 
       if (currentProduct) {
@@ -416,6 +456,30 @@ export default function AdminProducts() {
                 >
                   منتج جديد
                 </label>
+              </div>
+              
+              <div>
+                <label
+                  htmlFor="categoryId"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  الفئة
+                </label>
+                <select
+                  id="categoryId"
+                  value={formData.categoryId}
+                  onChange={(e) => 
+                    setFormData({ ...formData, categoryId: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                  <option value="">اختر الفئة</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               
               <div>

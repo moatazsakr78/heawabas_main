@@ -46,7 +46,7 @@ export default function ProductGrid({
           // تطبيق التصفية حسب الفئة إذا كانت موجودة
           if (filterByCategory) {
             filteredProducts = filteredProducts.filter((product: Product) => 
-              product.category && String(product.category) === String(filterByCategory)
+              product.categoryId && String(product.categoryId) === String(filterByCategory)
             );
           }
           

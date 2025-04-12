@@ -3,10 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   images: {
     domains: ['images.unsplash.com', 'via.placeholder.com'],
-    unoptimized: true,
+    unoptimized: false,
   },
-  output: 'export',
-  basePath: process.env.NODE_ENV === 'production' ? '/HeaWaBas' : '',
   trailingSlash: true,
 };
 

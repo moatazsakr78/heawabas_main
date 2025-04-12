@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { loadData, saveData } from '@/lib/localStorage';
 
 /**
@@ -8,7 +8,18 @@ import { loadData, saveData } from '@/lib/localStorage';
  * يقوم هذا المكون بتحميل البيانات من التخزين الدائم واستعادتها عند بدء التطبيق
  */
 export default function InitLocalStorage() {
+  // استخدام حالة للتحقق من أن الكود يعمل في جانب العميل فقط
+  const [isClient, setIsClient] = useState(false);
+
   useEffect(() => {
+    // تعيين isClient إلى true بمجرد تحميل المكون في المتصفح
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    // تشغيل الكود فقط بعد تأكيد أننا في جانب العميل
+    if (!isClient) return;
+
     const initializeStorage = async () => {
       // ضمان تحميل البيانات من التخزين الدائم واستعادتها في localStorage العادي للتوافق
       await syncLocalStorage('products');
@@ -43,7 +54,7 @@ export default function InitLocalStorage() {
     };
 
     initializeStorage();
-  }, []);
+  }, [isClient]); // تعتمد على isClient
 
   // هذا المكون لا يعرض أي محتوى مرئي
   return null;

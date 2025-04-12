@@ -9,4 +9,5 @@ export interface Product {
   imageUrl: string;
   isNew?: boolean;
   createdAt?: string;
+  categoryId?: string;
 }

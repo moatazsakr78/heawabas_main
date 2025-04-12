@@ -2,6 +2,9 @@
 
 // حفظ البيانات في كل من LocalStorage وSessionStorage لزيادة الثبات
 export function saveData(key: string, data: any): void {
+  // التحقق من كون التطبيق يعمل في بيئة المتصفح
+  if (typeof window === 'undefined') return;
+  
   try {
     const serializedData = JSON.stringify(data);
     localStorage.setItem(key, serializedData);
@@ -18,6 +21,9 @@ export function saveData(key: string, data: any): void {
 
 // استرجاع البيانات مع تفضيل IndexedDB ثم LocalStorage ثم SessionStorage
 export async function loadData(key: string): Promise<any> {
+  // التحقق من كون التطبيق يعمل في بيئة المتصفح
+  if (typeof window === 'undefined') return null;
+  
   try {
     // محاولة استرجاع البيانات من IndexedDB أولاً
     if (window.indexedDB) {
@@ -52,6 +58,9 @@ export async function loadData(key: string): Promise<any> {
 
 // حذف البيانات من جميع آليات التخزين
 export function removeData(key: string): void {
+  // التحقق من كون التطبيق يعمل في بيئة المتصفح
+  if (typeof window === 'undefined') return;
+  
   try {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
@@ -66,6 +75,9 @@ export function removeData(key: string): void {
 
 // دالة مساعدة للتحقق من وجود البيانات
 export function hasData(key: string): boolean {
+  // التحقق من كون التطبيق يعمل في بيئة المتصفح
+  if (typeof window === 'undefined') return false;
+  
   return localStorage.getItem(key) !== null || sessionStorage.getItem(key) !== null;
 }
 
