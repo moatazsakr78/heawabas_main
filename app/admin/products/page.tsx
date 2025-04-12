@@ -17,7 +17,6 @@ interface Product {
   imageUrl: string;
   isNew: boolean;
   createdAt: string;
-  categoryId?: string;
 }
 
 export default function AdminProducts() {
@@ -37,7 +36,6 @@ export default function AdminProducts() {
     boxPrice: '',
     imageUrl: '',
     isNew: false,
-    categoryId: '',
   });
 
   useEffect(() => {
@@ -102,7 +100,6 @@ export default function AdminProducts() {
               imageUrl: 'https://via.placeholder.com/300',
               isNew: true,
               createdAt: new Date().toISOString(),
-              categoryId: '1',
             },
             {
               id: '2',
@@ -115,7 +112,6 @@ export default function AdminProducts() {
               imageUrl: 'https://via.placeholder.com/300',
               isNew: true,
               createdAt: new Date().toISOString(),
-              categoryId: '2',
             },
           ];
           // حفظ البيانات الافتراضية في نظام التخزين الدائم
@@ -177,7 +173,6 @@ export default function AdminProducts() {
       boxPrice: '',
       imageUrl: '',
       isNew: false,
-      categoryId: '',
     });
     setIsModalOpen(true);
   };
@@ -193,7 +188,6 @@ export default function AdminProducts() {
       boxPrice: product.boxPrice.toString(),
       imageUrl: product.imageUrl,
       isNew: product.isNew,
-      categoryId: product.categoryId || '',
     });
     setIsModalOpen(true);
   };
@@ -223,7 +217,6 @@ export default function AdminProducts() {
               boxPrice: parseFloat(formData.boxPrice),
               imageUrl: formData.imageUrl,
               isNew: formData.isNew,
-              categoryId: formData.categoryId,
             }
           : prod
       );
@@ -241,7 +234,6 @@ export default function AdminProducts() {
         imageUrl: formData.imageUrl,
         isNew: formData.isNew,
         createdAt: new Date().toISOString(),
-        categoryId: formData.categoryId,
       };
       saveProducts([...products, newProduct]);
     }
@@ -279,7 +271,6 @@ export default function AdminProducts() {
         piecePrice: parseFloat(formData.piecePrice.toString()) || 0,
         packPrice: parseFloat(formData.packPrice.toString()) || 0,
         boxPrice: parseFloat(formData.boxPrice.toString()) || 0,
-        categoryId: formData.categoryId,
       };
 
       if (currentProduct) {
@@ -509,30 +500,6 @@ export default function AdminProducts() {
                 >
                   منتج جديد
                 </label>
-              </div>
-              
-              <div>
-                <label
-                  htmlFor="categoryId"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  الفئة
-                </label>
-                <select
-                  id="categoryId"
-                  value={formData.categoryId}
-                  onChange={(e) => 
-                    setFormData({ ...formData, categoryId: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                >
-                  <option value="">اختر الفئة</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
               </div>
               
               <div>
