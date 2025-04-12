@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import ProductCard from './ProductCard';
 import { Product } from '@/types';
 import { loadData } from '@/lib/localStorage';
+import { syncProductsFromSupabase, isOnline } from '@/lib/supabase';
 
 interface ProductGridProps {
   title?: string;
@@ -30,6 +31,15 @@ export default function ProductGrid({
       setLoading(true);
       
       try {
+        // أولاً، محاولة مزامنة البيانات من Supabase إذا كان متصلاً بالإنترنت
+        if (isOnline()) {
+          try {
+            await syncProductsFromSupabase();
+          } catch (error) {
+            console.error('Error syncing products from Supabase:', error);
+          }
+        }
+        
         // محاولة تحميل البيانات من التخزين الدائم
         const savedProducts = await loadData('products');
         const savedSettings = await loadData('productSettings');
@@ -123,18 +133,31 @@ export default function ProductGrid({
 
     loadProductsData();
     
-    // الاستماع لتغييرات التخزين
+    // الاستماع لتغييرات التخزين والاتصال بالإنترنت
     const handleStorageChange = () => {
       console.log('Storage changed, reloading products');
       setLastUpdate(Date.now());
     };
     
+    const handleOnlineStatusChange = () => {
+      if (isOnline()) {
+        // محاولة مزامنة البيانات عند عودة الاتصال
+        syncProductsFromSupabase().then(() => {
+          setLastUpdate(Date.now());
+        });
+      }
+    };
+    
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('customStorageChange', handleStorageChange as EventListener);
+    window.addEventListener('online', handleOnlineStatusChange);
+    window.addEventListener('offline', handleOnlineStatusChange);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('customStorageChange', handleStorageChange as EventListener);
+      window.removeEventListener('online', handleOnlineStatusChange);
+      window.removeEventListener('offline', handleOnlineStatusChange);
     };
   }, [limit, lastUpdate, filterByCategory]);
 

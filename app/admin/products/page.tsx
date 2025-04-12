@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FiPlus, FiEdit, FiTrash2, FiX, FiImage } from 'react-icons/fi';
+import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
 import { Category } from '@/lib/data';
+import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, isOnline } from '@/lib/supabase';
 
 interface Product {
   id: string;
@@ -37,11 +38,31 @@ export default function AdminProducts() {
     imageUrl: '',
     isNew: false,
   });
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     loadProductsData();
     loadCategoriesData();
+    
+    // إضافة مستمع للاتصال بالإنترنت
+    window.addEventListener('online', handleOnlineStatusChange);
+    window.addEventListener('offline', handleOnlineStatusChange);
+    
+    return () => {
+      window.removeEventListener('online', handleOnlineStatusChange);
+      window.removeEventListener('offline', handleOnlineStatusChange);
+    };
   }, []);
+
+  // دالة للتعامل مع تغييرات الاتصال بالإنترنت
+  const handleOnlineStatusChange = () => {
+    if (isOnline()) {
+      // محاولة مزامنة البيانات عند عودة الاتصال
+      syncProductsFromSupabase().then(() => {
+        loadProductsData();
+      });
+    }
+  };
 
   // تحميل بيانات الفئات
   const loadCategoriesData = async () => {
@@ -73,11 +94,40 @@ export default function AdminProducts() {
   // تحميل بيانات المنتجات بطريقة تضمن الثبات
   const loadProductsData = async () => {
     try {
+      setIsLoading(true);
+      
+      // محاولة تحميل المنتجات من Supabase أولاً إذا كان متصلاً بالإنترنت
+      if (isOnline()) {
+        try {
+          const onlineProducts = await loadProductsFromSupabase();
+          if (onlineProducts && onlineProducts.length > 0) {
+            setProducts(onlineProducts);
+            // تحديث التخزين المحلي
+            saveData('products', onlineProducts);
+            localStorage.setItem('products', JSON.stringify(onlineProducts));
+            setIsLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Error loading products from Supabase:', error);
+          // استمر في استخدام التخزين المحلي
+        }
+      }
+      
       // محاولة استرجاع البيانات باستخدام وظيفة التخزين المحلي الدائم
       const savedProducts = await loadData('products');
       
       if (savedProducts && Array.isArray(savedProducts)) {
         setProducts(savedProducts);
+        
+        // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
+        if (isOnline()) {
+          try {
+            await saveProductsToSupabase(savedProducts);
+          } catch (error) {
+            console.error('Error syncing to Supabase:', error);
+          }
+        }
       } else {
         // التحقق من وجود البيانات في localStorage التقليدي
         const localStorageProducts = localStorage.getItem('products');
@@ -121,11 +171,13 @@ export default function AdminProducts() {
       }
     } catch (error) {
       console.error('Error loading products:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // تعديل وظيفة حفظ المنتجات لاستخدام التخزين الدائم
-  const saveProducts = (newProducts: Product[]) => {
+  // تعديل وظيفة حفظ المنتجات لاستخدام التخزين الدائم والمزامنة مع Supabase
+  const saveProducts = async (newProducts: Product[]) => {
     setProducts(newProducts);
     
     // حفظ البيانات في نظام التخزين الدائم
@@ -133,6 +185,21 @@ export default function AdminProducts() {
     
     // أيضًا حفظ في localStorage التقليدي للتوافق مع بقية التطبيق
     localStorage.setItem('products', JSON.stringify(newProducts));
+    
+    // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
+    if (isOnline()) {
+      try {
+        await saveProductsToSupabase(newProducts);
+      } catch (error) {
+        console.error('Error saving to Supabase:', error);
+        setNotification({
+          message: 'تم حفظ البيانات محليًا فقط. فشلت المزامنة مع السيرفر.',
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+    }
     
     // إرسال أحداث التخزين لإعلام بقية التطبيق بالتغييرات
     try {
@@ -145,7 +212,9 @@ export default function AdminProducts() {
       }
       
       setNotification({
-        message: 'تم حفظ التغييرات بنجاح! التغييرات ستظهر في صفحة العملاء',
+        message: isOnline() 
+          ? 'تم حفظ التغييرات بنجاح! التغييرات ستظهر في جميع الأجهزة.' 
+          : 'تم حفظ التغييرات محليًا فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
         type: 'success'
       });
       
@@ -297,6 +366,55 @@ export default function AdminProducts() {
     }
   };
 
+  // دالة لمزامنة البيانات مع السيرفر
+  const handleSyncWithServer = async () => {
+    if (!isOnline()) {
+      setNotification({
+        message: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال أولاً.',
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    setIsSyncing(true);
+    
+    try {
+      // جلب البيانات من السيرفر
+      const serverProducts = await loadProductsFromSupabase();
+      
+      if (serverProducts && serverProducts.length > 0) {
+        // تحديث واجهة المستخدم
+        setProducts(serverProducts);
+        // تحديث التخزين المحلي
+        saveData('products', serverProducts);
+        localStorage.setItem('products', JSON.stringify(serverProducts));
+        
+        setNotification({
+          message: 'تمت المزامنة بنجاح مع السيرفر!',
+          type: 'success'
+        });
+      } else {
+        // إذا لم تكن هناك بيانات على السيرفر، قم برفع البيانات المحلية
+        await saveProductsToSupabase(products);
+        
+        setNotification({
+          message: 'تم رفع البيانات المحلية إلى السيرفر بنجاح!',
+          type: 'success'
+        });
+      }
+    } catch (error) {
+      console.error('Error syncing with server:', error);
+      setNotification({
+        message: 'حدثت مشكلة أثناء المزامنة مع السيرفر',
+        type: 'error'
+      });
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
   return (
     <div>
       {notification && (
@@ -311,13 +429,36 @@ export default function AdminProducts() {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl md:text-3xl font-bold">إدارة المنتجات</h1>
-        <button
-          onClick={handleAddProduct}
-          className="bg-primary text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
-        >
-          <FiPlus className="ml-2" />
-          إضافة منتج جديد
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={handleSyncWithServer}
+            disabled={isSyncing || !isOnline()}
+            className={`px-4 py-2 rounded-md flex items-center text-sm ${
+              isOnline() 
+                ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            {isSyncing ? (
+              <>
+                <FiRefreshCw className="ml-2 animate-spin" />
+                جارِ المزامنة...
+              </>
+            ) : (
+              <>
+                <FiRefreshCw className="ml-2" />
+                مزامنة مع السيرفر
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleAddProduct}
+            className="bg-primary text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
+          >
+            <FiPlus className="ml-2" />
+            إضافة منتج جديد
+          </button>
+        </div>
       </div>
 
       {/* Desktop Table - Hidden on Mobile */}

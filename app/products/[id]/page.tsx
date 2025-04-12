@@ -6,6 +6,7 @@ import { Product } from '@/types';
 import { useParams } from 'next/navigation';
 import ProductGrid from '@/components/products/ProductGrid';
 import { loadData } from '@/lib/localStorage';
+import { syncProductsFromSupabase, isOnline } from '@/lib/supabase';
 
 type Props = {
   params: { id: string };
@@ -21,6 +22,15 @@ export default function ProductPage() {
     const loadProductData = async () => {
       try {
         setLoading(true);
+        
+        // محاولة مزامنة البيانات من Supabase إذا كان متصلاً بالإنترنت
+        if (isOnline()) {
+          try {
+            await syncProductsFromSupabase();
+          } catch (error) {
+            console.error('Error syncing products from Supabase:', error);
+          }
+        }
         
         // محاولة استرجاع البيانات من التخزين الدائم
         const savedProducts = await loadData('products');
@@ -61,18 +71,30 @@ export default function ProductPage() {
     
     loadProductData();
     
-    // الاستماع للتغييرات في التخزين
+    // الاستماع للتغييرات في التخزين وحالة الاتصال
     const handleStorageChange = () => {
       console.log('Storage changed, reloading product details');
       setLastUpdate(Date.now());
     };
     
+    const handleOnlineStatusChange = () => {
+      if (isOnline()) {
+        syncProductsFromSupabase().then(() => {
+          setLastUpdate(Date.now());
+        });
+      }
+    };
+    
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('customStorageChange', handleStorageChange as EventListener);
+    window.addEventListener('online', handleOnlineStatusChange);
+    window.addEventListener('offline', handleOnlineStatusChange);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('customStorageChange', handleStorageChange as EventListener);
+      window.removeEventListener('online', handleOnlineStatusChange);
+      window.removeEventListener('offline', handleOnlineStatusChange);
     };
   }, [params.id, lastUpdate]);
 
