@@ -318,18 +318,19 @@ export default function AdminProducts() {
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">إدارة المنتجات</h1>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <h1 className="text-2xl md:text-3xl font-bold">إدارة المنتجات</h1>
         <button
           onClick={handleAddProduct}
-          className="bg-primary text-white px-4 py-2 rounded-md flex items-center"
+          className="bg-primary text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
         >
           <FiPlus className="ml-2" />
           إضافة منتج جديد
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+      {/* Desktop Table - Hidden on Mobile */}
+      <div className="hidden md:block bg-white rounded-lg shadow-md overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -389,19 +390,68 @@ export default function AdminProducts() {
         </table>
       </div>
 
+      {/* Mobile Product Cards - Shown only on Mobile */}
+      <div className="md:hidden space-y-4">
+        {products.map((product) => (
+          <div key={product.id} className="bg-white rounded-lg shadow-md p-4">
+            <div className="flex items-center gap-4 mb-3">
+              <img
+                src={product.imageUrl}
+                alt={product.name}
+                className="h-16 w-16 rounded-md object-cover"
+              />
+              <div className="flex-1">
+                <h3 className="font-bold text-lg">{product.name}</h3>
+                <p className="text-gray-600 text-sm">كود: {product.productCode}</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
+              <div className="bg-gray-50 p-2 rounded">
+                <span className="font-bold">سعر القطعة:</span> {product.piecePrice} جنيه
+              </div>
+              <div className="bg-gray-50 p-2 rounded">
+                <span className="font-bold">سعر الدستة:</span> {product.packPrice} جنيه
+              </div>
+              <div className="bg-gray-50 p-2 rounded">
+                <span className="font-bold">سعر الكرتونة:</span> {product.boxPrice} جنيه
+              </div>
+              <div className="bg-gray-50 p-2 rounded">
+                <span className="font-bold">الكمية:</span> {product.boxQuantity} قطعة
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-4 mt-2">
+              <button
+                onClick={() => handleEditProduct(product)}
+                className="bg-blue-500 text-white px-4 py-2 rounded-md flex items-center text-sm"
+              >
+                <FiEdit className="ml-1" /> تعديل
+              </button>
+              <button
+                onClick={() => handleDeleteProduct(product.id)}
+                className="bg-red-500 text-white px-4 py-2 rounded-md flex items-center text-sm"
+              >
+                <FiTrash2 className="ml-1" /> حذف
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Modal for Add/Edit */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-4 md:p-8 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">
+              <h2 className="text-xl md:text-2xl font-bold">
                 {currentProduct ? 'تعديل المنتج' : 'إضافة منتج جديد'}
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-gray-500 hover:text-gray-700 p-1"
               >
-                <FiX />
+                <FiX size={24} />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -576,7 +626,7 @@ export default function AdminProducts() {
                 >
                   صورة المنتج
                 </label>
-                <div className="mt-1 flex items-center">
+                <div className="mt-1 flex flex-col sm:flex-row items-center gap-4">
                   {formData.imageUrl ? (
                     <div className="relative">
                       <img 
@@ -596,36 +646,38 @@ export default function AdminProducts() {
                     <button
                       type="button"
                       onClick={handleImageClick}
-                      className="bg-gray-200 hover:bg-gray-300 p-8 rounded-md flex flex-col items-center"
+                      className="bg-gray-200 hover:bg-gray-300 p-6 sm:p-8 rounded-md flex flex-col items-center w-full sm:w-auto"
                     >
-                      <FiImage className="h-10 w-10 text-gray-500" />
+                      <FiImage className="h-8 w-8 text-gray-500" />
                       <span className="mt-2 text-gray-600 text-sm">اضغط لإضافة صورة</span>
                     </button>
                   )}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleImageChange}
-                    accept="image/*"
-                    className="hidden"
-                  />
+                  <div className="flex-1 w-full">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleImageChange}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <input
+                      type="text"
+                      value={formData.imageUrl}
+                      onChange={(e) =>
+                        setFormData({ ...formData, imageUrl: e.target.value })
+                      }
+                      placeholder="أو أدخل رابط الصورة مباشرة"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  value={formData.imageUrl}
-                  onChange={(e) =>
-                    setFormData({ ...formData, imageUrl: e.target.value })
-                  }
-                  placeholder="أو أدخل رابط الصورة مباشرة"
-                  className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                />
               </div>
               
-              <div className="flex justify-end mt-6">
+              <div className="flex justify-end gap-2 mt-6">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="mr-2 px-4 py-2 text-gray-600 hover:text-gray-800"
+                  className="px-4 py-2 border border-gray-300 text-gray-600 rounded-md hover:bg-gray-100"
                 >
                   إلغاء
                 </button>
