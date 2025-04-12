@@ -10,6 +10,7 @@ interface ProductGridProps {
   showViewAll?: boolean;
   viewAllLink?: string;
   limit?: number;
+  filterByCategory?: string;
 }
 
 export default function ProductGrid({
@@ -17,6 +18,7 @@ export default function ProductGrid({
   showViewAll = false,
   viewAllLink = '/products',
   limit,
+  filterByCategory,
 }: ProductGridProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,13 @@ export default function ProductGrid({
           console.log('Products loaded:', localProducts.length);
           
           let filteredProducts = localProducts;
+          
+          // تطبيق التصفية حسب الفئة إذا كانت موجودة
+          if (filterByCategory) {
+            filteredProducts = filteredProducts.filter((product: Product) => 
+              product.category && String(product.category) === String(filterByCategory)
+            );
+          }
           
           // طريقة تحديد المنتجات الجديدة بناءً على إعدادات المنتجات الجديدة
           if (localSettings) {
@@ -101,7 +110,7 @@ export default function ProductGrid({
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('customStorageChange', handleStorageChange as EventListener);
     };
-  }, [limit, lastUpdate]);
+  }, [limit, lastUpdate, filterByCategory]);
 
   if (loading) {
     return (
