@@ -3,12 +3,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FiMenu, FiX, FiHome, FiKey, FiPackage } from 'react-icons/fi';
+import { FiMenu, FiX, FiHome, FiKey } from 'react-icons/fi';
 import AdminLoginModal from '@/components/admin/AdminLoginModal';
 
 const navigation = [
   { name: 'الرئيسية', href: '/', icon: FiHome },
-  { name: 'المنتجات الجديدة', href: '/products/new', icon: FiPackage },
 ];
 
 export default function Navbar() {
