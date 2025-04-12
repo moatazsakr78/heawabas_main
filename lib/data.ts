@@ -153,7 +153,7 @@ export function createSlug(text: string): string {
   return text
     .trim()
     .replace(/\s+/g, '-')        // استبدال المسافات بشرطات
-    .replace(/[^\p{L}\p{N}\-]/gu, '') // إزالة الأحرف غير الحرفية أو الرقمية باستثناء الشرطة
+    .replace(/[^a-zA-Z0-9\u0600-\u06FF\-]/g, '') // إزالة الأحرف غير العربية أو الإنجليزية أو الرقمية باستثناء الشرطة
     .toLowerCase();             // تحويل إلى أحرف صغيرة (للأحرف اللاتينية)
 }
 
@@ -187,16 +187,16 @@ export function getCategories() {
   return categoriesData as Category[];
 }
 
-export function getCategoryBySlug(slug: string) {
+export function getCategoryBySlug(slug: string): Category | undefined {
   // استخدام دالة getCategories التي تم تعديلها للحصول على قائمة الفئات المحدثة
   const categories = getCategories();
-  return categories.find((category) => category.slug === slug);
+  return categories.find((category: Category) => category.slug === slug);
 }
 
 export function getAllCategoryIds() {
   // استخدام دالة getCategories التي تم تعديلها للحصول على قائمة الفئات المحدثة
   const categories = getCategories();
-  return categories.map((category) => category.slug);
+  return categories.map((category: Category) => category.slug);
 }
 
 export function getAllProductIds() {

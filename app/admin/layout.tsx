@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { FiPackage, FiLogOut } from 'react-icons/fi';
+import { FiPackage, FiLogOut, FiSettings } from 'react-icons/fi';
 import { hasData, removeData } from '@/lib/localStorage';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -32,6 +32,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   
   const navigation = [
     { name: 'إدارة المنتجات', href: '/admin/products', icon: FiPackage },
+    { name: 'إعدادات المنتجات', href: '/admin/settings', icon: FiSettings },
   ];
   
   if (!isAuthenticated) {

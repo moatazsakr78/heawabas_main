@@ -1,3 +1,5 @@
+'use client';
+
 // وظائف حفظ واسترجاع البيانات من التخزين المحلي مع دعم التخزين الدائم عبر فترات إعادة التشغيل
 
 // حفظ البيانات في كل من LocalStorage وSessionStorage لزيادة الثبات
@@ -10,32 +12,28 @@ export function saveData(key: string, data: any): void {
     localStorage.setItem(key, serializedData);
     sessionStorage.setItem(key, serializedData);
     
-    // تخزين في IndexedDB إذا كان متاحاً
-    if (window.indexedDB) {
-      saveToIndexedDB(key, data);
+    // تخزين في IndexedDB مع التحقق من دعم المتصفح والتعامل مع الأخطاء
+    try {
+      if (window.indexedDB) {
+        saveToIndexedDB(key, data).catch(err => {
+          console.log('IndexedDB save fallback to localStorage only:', err);
+        });
+      }
+    } catch (idbError) {
+      console.log('IndexedDB not supported, using localStorage only');
     }
   } catch (error) {
     console.error(`Error saving data for key ${key}:`, error);
   }
 }
 
-// استرجاع البيانات مع تفضيل IndexedDB ثم LocalStorage ثم SessionStorage
+// استرجاع البيانات مع تفضيل LocalStorage لتبسيط العملية
 export async function loadData(key: string): Promise<any> {
   // التحقق من كون التطبيق يعمل في بيئة المتصفح
   if (typeof window === 'undefined') return null;
   
   try {
-    // محاولة استرجاع البيانات من IndexedDB أولاً
-    if (window.indexedDB) {
-      const dataFromIDB = await loadFromIndexedDB(key);
-      if (dataFromIDB !== null) {
-        // تحديث LocalStorage و SessionStorage بالبيانات من IndexedDB
-        saveData(key, dataFromIDB);
-        return dataFromIDB;
-      }
-    }
-
-    // محاولة استرجاع البيانات من LocalStorage
+    // محاولة استرجاع البيانات من LocalStorage أولاً كطريقة أكثر موثوقية
     const serializedData = localStorage.getItem(key);
     if (serializedData) {
       return JSON.parse(serializedData);
@@ -47,6 +45,20 @@ export async function loadData(key: string): Promise<any> {
       // إعادة تخزينها في LocalStorage إذا وُجدت فقط في SessionStorage
       localStorage.setItem(key, sessionData);
       return JSON.parse(sessionData);
+    }
+
+    // محاولة استرجاع البيانات من IndexedDB كملاذ أخير
+    try {
+      if (window.indexedDB) {
+        const dataFromIDB = await loadFromIndexedDB(key);
+        if (dataFromIDB !== null) {
+          // تحديث LocalStorage بالبيانات من IndexedDB
+          localStorage.setItem(key, JSON.stringify(dataFromIDB));
+          return dataFromIDB;
+        }
+      }
+    } catch (idbError) {
+      console.log('IndexedDB load failed, using localStorage only');
     }
 
     return null;
@@ -65,8 +77,14 @@ export function removeData(key: string): void {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
     
-    if (window.indexedDB) {
-      removeFromIndexedDB(key);
+    try {
+      if (window.indexedDB) {
+        removeFromIndexedDB(key).catch(err => {
+          console.log('IndexedDB remove error:', err);
+        });
+      }
+    } catch (idbError) {
+      console.log('IndexedDB not supported, removed from localStorage only');
     }
   } catch (error) {
     console.error(`Error removing data for key ${key}:`, error);

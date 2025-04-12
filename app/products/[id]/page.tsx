@@ -25,10 +25,25 @@ export default function ProductPage() {
         // محاولة استرجاع البيانات من التخزين الدائم
         const savedProducts = await loadData('products');
         
-        // احتياطياً، نحاول من localStorage العادي
-        const localProducts = savedProducts || JSON.parse(localStorage.getItem('products') || '[]');
+        // تحضير متغير للمنتجات
+        let localProducts = [];
         
-        if (localProducts) {
+        // إذا وجدنا منتجات من التخزين الدائم، نستخدمها
+        if (savedProducts !== null) {
+          localProducts = savedProducts;
+        } else {
+          // احتياطياً، نحاول من localStorage العادي
+          try {
+            const productsFromLS = localStorage.getItem('products');
+            if (productsFromLS) {
+              localProducts = JSON.parse(productsFromLS);
+            }
+          } catch (error) {
+            console.error('Error parsing products from localStorage:', error);
+          }
+        }
+        
+        if (localProducts && Array.isArray(localProducts)) {
           // البحث عن المنتج بالمعرف
           const foundProduct = localProducts.find((p: Product) => p.id === params.id);
           

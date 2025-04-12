@@ -2,7 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
-import InitLocalStorage from '@/components/storage/InitLocalStorage';
+import ClientInitProvider from '@/components/storage/ClientInitProvider';
 
 export const metadata: Metadata = {
   title: 'Product Catalog | Your Brand Name',
@@ -18,7 +18,7 @@ export default function RootLayout({
     <html lang="ar" dir="rtl">
       <body>
         <div className="min-h-screen flex flex-col">
-          <InitLocalStorage />
+          <ClientInitProvider />
           <Navbar />
           <main className="flex-grow">{children}</main>
           <Footer />

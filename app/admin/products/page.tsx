@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage } from 'react-icons/fi';
-import { v4 as uuidv4 } from 'uuid';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
 import { Category } from '@/lib/data';
@@ -141,10 +140,13 @@ export default function AdminProducts() {
     
     // إرسال أحداث التخزين لإعلام بقية التطبيق بالتغييرات
     try {
-      window.dispatchEvent(new Event('storage'));
-      window.dispatchEvent(new CustomEvent('customStorageChange', { 
-        detail: { type: 'products', timestamp: Date.now() }
-      }));
+      // تأكد من وجود window قبل استخدام dispatchEvent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('customStorageChange', { 
+          detail: { type: 'products', timestamp: Date.now() }
+        }));
+      }
       
       setNotification({
         message: 'تم حفظ التغييرات بنجاح! التغييرات ستظهر في صفحة العملاء',
@@ -197,7 +199,8 @@ export default function AdminProducts() {
   };
 
   const handleDeleteProduct = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+    // تأكد من وجود window قبل استخدام confirm
+    if (typeof window !== 'undefined' && window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
       const newProducts = products.filter((product) => product.id !== id);
       saveProducts(newProducts);
     }

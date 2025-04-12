@@ -35,8 +35,34 @@ export default function ProductGrid({
         const savedSettings = await loadData('productSettings');
         
         // احتياطياً، إذا لم يتم العثور على البيانات في التخزين الدائم، نحاول من localStorage
-        const localProducts = savedProducts || JSON.parse(localStorage.getItem('products') || '[]');
-        const localSettings = savedSettings || JSON.parse(localStorage.getItem('productSettings') || '{}');
+        let localProducts = [];
+        let localSettings = {};
+        
+        if (savedProducts !== null) {
+          localProducts = savedProducts;
+        } else {
+          try {
+            const productsFromLS = localStorage.getItem('products');
+            if (productsFromLS) {
+              localProducts = JSON.parse(productsFromLS);
+            }
+          } catch (error) {
+            console.error('Error parsing products from localStorage:', error);
+          }
+        }
+        
+        if (savedSettings !== null) {
+          localSettings = savedSettings;
+        } else {
+          try {
+            const settingsFromLS = localStorage.getItem('productSettings');
+            if (settingsFromLS) {
+              localSettings = JSON.parse(settingsFromLS);
+            }
+          } catch (error) {
+            console.error('Error parsing settings from localStorage:', error);
+          }
+        }
         
         if (localProducts && Array.isArray(localProducts) && localProducts.length > 0) {
           console.log('Products loaded:', localProducts.length);
@@ -56,7 +82,7 @@ export default function ProductGrid({
               // إذا كان مسار الصفحة الحالية هو صفحة المنتجات الجديدة
               if (window.location.pathname.includes('/products/new')) {
                 const currentDate = new Date();
-                let newProductDays = localSettings.newProductDays || 14; // استخدام القيمة الافتراضية إذا لم تكن موجودة
+                let newProductDays = (localSettings as {newProductDays?: number}).newProductDays || 14;
                 
                 // تصفية المنتجات التي تم إنشاؤها خلال المدة المحددة فقط
                 filteredProducts = localProducts.filter((product: Product) => {
