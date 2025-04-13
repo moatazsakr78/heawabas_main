@@ -167,7 +167,9 @@ export default function CategoryPage({ params }: Props) {
                     console.log('Trying traditional method as last resort');
                     const traditionalMatch = getCategoryBySlug(params.slug);
                     console.log('Traditional method result:', traditionalMatch);
-                    setCategory(traditionalMatch);
+                    if (traditionalMatch !== null) {
+                      setCategory(traditionalMatch);
+                    }
                   }
                 }
               }
@@ -175,13 +177,17 @@ export default function CategoryPage({ params }: Props) {
               // استخدام الطريقة التقليدية كطريقة احتياطية
               console.log('No local categories found, using traditional method');
               const foundCategory = getCategoryBySlug(params.slug);
-              setCategory(foundCategory);
+              if (foundCategory !== null) {
+                setCategory(foundCategory);
+              }
             }
           } catch (error) {
             console.error('Error loading category:', error);
             // استخدام الطريقة التقليدية كطريقة احتياطية
             const foundCategory = getCategoryBySlug(params.slug);
-            setCategory(foundCategory);
+            if (foundCategory !== null) {
+              setCategory(foundCategory);
+            }
           } finally {
             setLoading(false);
           }
@@ -206,7 +212,9 @@ export default function CategoryPage({ params }: Props) {
         console.error('Error loading category:', error);
         // استخدام الطريقة التقليدية كطريقة احتياطية
         const foundCategory = getCategoryBySlug(params.slug);
-        setCategory(foundCategory);
+        if (foundCategory !== null) {
+          setCategory(foundCategory);
+        }
       } finally {
         setLoading(false);
       }
