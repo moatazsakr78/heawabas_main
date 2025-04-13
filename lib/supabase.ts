@@ -739,7 +739,7 @@ export async function resetAndSyncProducts(products: any[]) {
     
     // تحويل المنتجات الموجودة إلى تنسيق التطبيق
     const existingAppProducts = existingProducts ? 
-      existingProducts.map(mapDatabaseToAppModel) : 
+      existingProducts.map(mapDatabaseToAppModel).filter((product): product is NonNullable<ReturnType<typeof mapDatabaseToAppModel>> => product !== null) : 
       [];
     
     // دمج المنتجات المحلية مع المنتجات الموجودة (مع تفضيل المحلية في حالة وجود نفس المعرف)
