@@ -2,7 +2,7 @@
 
 import productsData from './data/products.json';
 import categoriesData from './data/categories.json';
-import { Product } from '@/types';
+import { Product, Category } from '@/types';
 
 // وظيفة مساعدة لتنسيق المنتجات وفقًا للواجهة الحالية
 function formatProduct(product: any): any {
@@ -17,134 +17,207 @@ function formatProduct(product: any): any {
   };
 }
 
-export interface Category {
-  id: string;
-  name: string;
-  slug: string;
-  image: string;
-  description: string;
-}
-
-export function getProducts({ categoryId, newOnly, limit }: { categoryId?: string; newOnly?: boolean; limit?: number }) {
-  let products = productsData as any[];
-
-  // تنسيق كل المنتجات حسب الواجهة الحالية
-  products = products.map(formatProduct);
-
-  if (categoryId) {
-    products = products.filter((product) => 
-      (product.category && product.category.id === categoryId) || 
-      (product.categoryId && product.categoryId === categoryId)
-    );
+export function getProducts({ categoryId = '', newOnly = false, limit = 0 }: { categoryId?: string, newOnly?: boolean, limit?: number } = {}) {
+  try {
+    // محاولة تحميل البيانات من localStorage إذا كنا في المتصفح
+    if (typeof window !== 'undefined') {
+      const productsData = localStorage.getItem('products');
+      if (productsData) {
+        try {
+          let products: Product[] = JSON.parse(productsData);
+          
+          // تطبيق فلاتر التصنيف والمنتجات الجديدة إذا تم تحديدها
+          if (categoryId) {
+            products = products.filter(product => product.categoryId === categoryId);
+          }
+          
+          if (newOnly) {
+            products = products.filter(product => product.isNew);
+          }
+          
+          // تطبيق الحد إذا تم تحديده وكان أكبر من 0
+          if (limit > 0 && products.length > limit) {
+            products = products.slice(0, limit);
+          }
+          
+          return products;
+        } catch (error) {
+          console.error('خطأ في تحليل بيانات المنتجات:', error);
+        }
+      }
+    }
+    
+    // في حالة عدم وجود بيانات في localStorage أو خطأ، نستخدم المنتجات الافتراضية
+    const defaultProducts: Product[] = [
+      {
+        id: '1',
+        name: 'لابتوب Asus',
+        productCode: 'LP001',
+        boxQuantity: 5,
+        piecePrice: 1200,
+        packPrice: 5500,
+        boxPrice: 27000,
+        imageUrl: 'https://via.placeholder.com/300',
+        isNew: true,
+        createdAt: new Date().toISOString(),
+        categoryId: '1',
+      },
+      {
+        id: '2',
+        name: 'غسالة LG',
+        productCode: 'WM002',
+        boxQuantity: 2,
+        piecePrice: 500,
+        packPrice: 950,
+        boxPrice: 1800,
+        imageUrl: 'https://via.placeholder.com/300',
+        isNew: true,
+        createdAt: new Date().toISOString(),
+        categoryId: '2',
+      },
+      // يمكن إضافة المزيد من المنتجات هنا...
+    ];
+    
+    // تطبيق نفس الفلاتر على المنتجات الافتراضية
+    let filteredProducts = [...defaultProducts];
+    
+    if (categoryId) {
+      filteredProducts = filteredProducts.filter(product => product.categoryId === categoryId);
+    }
+    
+    if (newOnly) {
+      filteredProducts = filteredProducts.filter(product => product.isNew);
+    }
+    
+    // تطبيق الحد إذا تم تحديده وكان أكبر من 0
+    if (limit > 0 && filteredProducts.length > limit) {
+      filteredProducts = filteredProducts.slice(0, limit);
+    }
+    
+    return filteredProducts;
+  } catch (error) {
+    console.error('خطأ في الحصول على المنتجات:', error);
+    return [];
   }
-
-  if (newOnly) {
-    products = products.filter((product) => product.isNew);
-  }
-
-  if (limit) {
-    products = products.slice(0, limit);
-  }
-
-  return products;
 }
 
 export function getProductById(id: string) {
-  const product = (productsData as any[]).find((product) => product.id === id);
-  return product ? formatProduct(product) : undefined;
-}
-
-export function getRelatedProducts(categoryId: string, currentProductId: string, limit: number) {
-  let products = (productsData as any[])
-    .filter((product) => 
-      ((product.category && product.category.id === categoryId) || 
-       (product.categoryId && product.categoryId === categoryId)) && 
-      product.id !== currentProductId
-    );
-  
-  products = products.map(formatProduct);
-  
-  return products.slice(0, limit);
-}
-
-export function getFeaturedProducts(limit: number) {
-  let products = (productsData as any[]).filter((product) => product.isNew);
-  products = products.map(formatProduct);
-  return products.slice(0, limit);
-}
-
-export function getNewProducts(limit?: number) {
-  // تحقق من وجود بيانات في localStorage
-  if (typeof window === 'undefined') {
-    // في حالة الخادم، نعود بالبيانات الثابتة فقط
-    let products = productsData as any[];
-    products = products.filter((product) => product.isNew);
-    products = products.map(formatProduct);
+  try {
+    if (typeof window !== 'undefined') {
+      const productsData = localStorage.getItem('products');
+      if (productsData) {
+        try {
+          const products: Product[] = JSON.parse(productsData);
+          return products.find(product => product.id === id) || null;
+        } catch (error) {
+          console.error('خطأ في تحليل بيانات المنتجات:', error);
+        }
+      }
+    }
     
-    if (limit && limit > 0) {
-      products = products.slice(0, limit);
+    // بيانات افتراضية إذا لم يتم العثور على المنتج
+    const defaultProducts = getProducts();
+    return defaultProducts.find(product => product.id === id) || null;
+  } catch (error) {
+    console.error('خطأ في الحصول على المنتج:', error);
+    return null;
+  }
+}
+
+export function getRelatedProducts(categoryId: string, currentProductId: string, limit = 3) {
+  try {
+    const products = getProducts({ categoryId });
+    const relatedProducts = products.filter(product => product.id !== currentProductId);
+    
+    // تطبيق الحد إذا تم تحديده وكان أكبر من 0
+    if (limit > 0 && relatedProducts.length > limit) {
+      return relatedProducts.slice(0, limit);
+    }
+    
+    return relatedProducts;
+  } catch (error) {
+    console.error('خطأ في الحصول على المنتجات ذات الصلة:', error);
+    return [];
+  }
+}
+
+export function getFeaturedProducts(limit = 0) {
+  try {
+    // يمكن تنفيذ منطق مخصص هنا لتحديد المنتجات المميزة
+    // هنا نستخدم المنتجات الافتراضية كمثال
+    const products = getProducts();
+    
+    // تطبيق الحد إذا تم تحديده وكان أكبر من 0
+    if (limit > 0 && products.length > limit) {
+      return products.slice(0, limit);
     }
     
     return products;
+  } catch (error) {
+    console.error('خطأ في الحصول على المنتجات المميزة:', error);
+    return [];
   }
-  
+}
+
+export function getNewProducts(limit = 0) {
   try {
-    const savedProducts = localStorage.getItem('products');
-    const savedSettings = localStorage.getItem('productSettings');
+    let newProducts: Product[] = [];
     
-    if (savedProducts) {
-      let products = JSON.parse(savedProducts);
-      
-      // تنسيق المنتجات من localStorage حسب الواجهة الحالية
-      products = products.map(formatProduct);
-      
-      let newProductDays = 14; // القيمة الافتراضية: 14 يوم
-      
-      // استخدام إعدادات المنتجات الجديدة إذا كانت متوفرة
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
-        if (settings.newProductDays) {
-          newProductDays = settings.newProductDays;
+    // محاولة تحميل المنتجات من localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        // تحميل إعدادات المنتجات لمعرفة كم يوم يعتبر المنتج جديداً
+        const settingsData = localStorage.getItem('productSettings');
+        let newProductsDays = 14; // القيمة الافتراضية هي 14 يوم
+        
+        if (settingsData) {
+          const settings = JSON.parse(settingsData);
+          newProductsDays = settings.newProductsDays || 14;
         }
-      }
-      
-      const currentDate = new Date();
-      
-      // تصفية المنتجات التي تم إنشاؤها خلال المدة المحددة
-      products = products.filter((product: any) => {
-        if (!product.createdAt || !product.isNew) return false;
         
-        const createdDate = new Date(product.createdAt);
-        const diffTime = Math.abs(currentDate.getTime() - createdDate.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        // إرجاع المنتجات التي تم إنشاؤها خلال المدة المحددة فقط
-        return diffDays <= newProductDays;
-      });
-      
-      // تطبيق حد عدد المنتجات إذا كان موجودًا
-      if (limit && limit > 0) {
-        products = products.slice(0, limit);
+        const productsData = localStorage.getItem('products');
+        if (productsData) {
+          const products = JSON.parse(productsData) as Product[];
+          const now = new Date();
+          
+          newProducts = products.filter(product => {
+            // إذا كان المنتج موسوم كجديد، قم بإضافته
+            if (product.isNew === true) {
+              return true;
+            }
+            
+            // التحقق من تاريخ الإنشاء إذا كان موجوداً
+            if (product.createdAt) {
+              const creationDate = new Date(product.createdAt);
+              const timeDiff = now.getTime() - creationDate.getTime();
+              const daysSinceCreation = Math.floor(timeDiff / (1000 * 3600 * 24));
+              
+              return daysSinceCreation <= newProductsDays;
+            }
+            
+            return false;
+          });
+        }
+      } catch (error) {
+        console.error('خطأ في تحميل بيانات المنتجات الجديدة:', error);
       }
-      
-      return products;
     }
-  } catch (e) {
-    console.error('Error loading new products:', e);
+    
+    // إذا لم يتم العثور على منتجات جديدة، استخدم الطريقة الأصلية
+    if (newProducts.length === 0) {
+      newProducts = getProducts({ newOnly: true });
+    }
+    
+    // تطبيق الحد إذا تم تحديده
+    if (limit > 0 && newProducts.length > limit) {
+      return newProducts.slice(0, limit);
+    }
+    
+    return newProducts;
+  } catch (error) {
+    console.error('خطأ في الحصول على المنتجات الجديدة:', error);
+    return [];
   }
-  
-  // في حالة عدم وجود بيانات في localStorage أو وجود خطأ
-  let products = productsData as any[];
-  products = products.filter((product) => product.isNew);
-  
-  // تنسيق المنتجات حسب الواجهة الحالية
-  products = products.map(formatProduct);
-  
-  if (limit && limit > 0) {
-    products = products.slice(0, limit);
-  }
-  
-  return products;
 }
 
 // إضافة وظيفة مساعدة لتحويل النص العربي إلى slug صالح للاستخدام في العناوين
@@ -158,47 +231,77 @@ export function createSlug(text: string): string {
 }
 
 export function getCategories() {
-  // تحقق أولاً مما إذا كنا في بيئة المتصفح أم الخادم
-  if (typeof window === 'undefined') {
-    // نحن في جانب الخادم، نعيد البيانات الثابتة فقط
-    return categoriesData as Category[];
-  }
-  
-  // نحن في جانب العميل، يمكننا استخدام localStorage
   try {
-    const savedCategories = localStorage.getItem('categories');
-    
-    if (savedCategories) {
-      const parsedCategories = JSON.parse(savedCategories);
-      // تحويل هيكل البيانات من localStorage إلى الهيكل المتوقع في واجهة المستخدم
-      return parsedCategories.map((cat: any) => ({
-        id: String(cat.id),
-        name: cat.name,
-        slug: createSlug(cat.name), // استخدام الوظيفة المحسنة لإنشاء slug
-        image: cat.imageUrl || cat.image || '',
-        description: cat.description || 'وصف القسم'
-      }));
+    // محاولة تحميل البيانات من localStorage إذا كنا في المتصفح
+    if (typeof window !== 'undefined') {
+      const categoriesData = localStorage.getItem('categories');
+      if (categoriesData) {
+        try {
+          return JSON.parse(categoriesData) as Category[];
+        } catch (error) {
+          console.error('خطأ في تحليل بيانات الفئات:', error);
+        }
+      }
     }
-  } catch (e) {
-    console.error('Error parsing categories from localStorage:', e);
+    
+    // بيانات افتراضية في حالة عدم وجود بيانات في localStorage
+    return [
+      {
+        id: '1',
+        name: 'إلكترونيات',
+        slug: 'electronics',
+        image: 'https://via.placeholder.com/300',
+        description: 'أجهزة إلكترونية متنوعة',
+      },
+      {
+        id: '2',
+        name: 'أجهزة منزلية',
+        slug: 'appliances',
+        image: 'https://via.placeholder.com/300',
+        description: 'أجهزة المنزل الأساسية',
+      },
+      // يمكن إضافة المزيد من الفئات هنا...
+    ] as Category[];
+  } catch (error) {
+    console.error('خطأ في الحصول على الفئات:', error);
+    return [];
   }
-  
-  // إذا لم تكن هناك بيانات في localStorage أو حدث خطأ، استخدم البيانات الثابتة
-  return categoriesData as Category[];
 }
 
-export function getCategoryBySlug(slug: string): Category | undefined {
-  // استخدام دالة getCategories التي تم تعديلها للحصول على قائمة الفئات المحدثة
-  const categories = getCategories();
-  return categories.find((category: Category) => category.slug === slug);
+export function getCategoryBySlug(slug: string) {
+  try {
+    const categories = getCategories();
+    return categories.find(category => category.slug === slug) || null;
+  } catch (error) {
+    console.error('خطأ في الحصول على الفئة بالاسم المستعار:', error);
+    return null;
+  }
 }
 
 export function getAllCategoryIds() {
-  // استخدام دالة getCategories التي تم تعديلها للحصول على قائمة الفئات المحدثة
-  const categories = getCategories();
-  return categories.map((category: Category) => category.slug);
+  try {
+    const categories = getCategories();
+    return categories.map(category => ({
+      params: {
+        slug: category.slug,
+      },
+    }));
+  } catch (error) {
+    console.error('خطأ في الحصول على معرفات الفئات:', error);
+    return [];
+  }
 }
 
 export function getAllProductIds() {
-  return (productsData as any[]).map((product) => product.id);
+  try {
+    const products = getProducts();
+    return products.map(product => ({
+      params: {
+        id: product.id,
+      },
+    }));
+  } catch (error) {
+    console.error('خطأ في الحصول على معرفات المنتجات:', error);
+    return [];
+  }
 } 
