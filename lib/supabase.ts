@@ -54,23 +54,64 @@ if (typeof window !== 'undefined') {
 function mapDatabaseToAppModel(product: any) {
   if (!product) return null;
   
+  // طباعة البيانات المستلمة من قاعدة البيانات للتشخيص
+  console.log('بيانات المنتج المستلمة من قاعدة البيانات:', {
+    id: product.id,
+    name: product.name,
+    product_code: product.product_code,
+    box_quantity: product.box_quantity,
+    piece_price: product.piece_price,
+    pack_price: product.pack_price,
+    box_price: product.box_price
+  });
+  
   // تعامل مع كلا الاسمين لحقل التاريخ (created_at و createdAt)
   const createdDate = product.created_at || product.createdAt || new Date().toISOString();
   
-  return {
+  // التأكد من تحويل القيم الرقمية بشكل صحيح
+  // استخدام parseFloat لتحويل النصوص إلى أرقام حقيقية
+  // واستخدام isNaN للتحقق من أن القيمة رقم صالح
+  const boxQuantity = typeof product.box_quantity === 'number' ? product.box_quantity : 
+                     (product.box_quantity !== undefined && product.box_quantity !== null) ? 
+                     parseFloat(product.box_quantity) : 0;
+                     
+  const piecePrice = typeof product.piece_price === 'number' ? product.piece_price : 
+                    (product.piece_price !== undefined && product.piece_price !== null) ? 
+                    parseFloat(product.piece_price) : 0;
+                    
+  const packPrice = typeof product.pack_price === 'number' ? product.pack_price : 
+                   (product.pack_price !== undefined && product.pack_price !== null) ? 
+                   parseFloat(product.pack_price) : 0;
+                   
+  const boxPrice = typeof product.box_price === 'number' ? product.box_price : 
+                  (product.box_price !== undefined && product.box_price !== null) ? 
+                  parseFloat(product.box_price) : 0;
+  
+  // تعيين القيم غير القابلة للتحويل إلى 0
+  const validBoxQuantity = isNaN(boxQuantity) ? 0 : boxQuantity;
+  const validPiecePrice = isNaN(piecePrice) ? 0 : piecePrice;
+  const validPackPrice = isNaN(packPrice) ? 0 : packPrice;
+  const validBoxPrice = isNaN(boxPrice) ? 0 : boxPrice;
+  
+  const result = {
     id: product.id,
-    name: product.name,
-    productCode: product.product_code,
-    boxQuantity: product.box_quantity,
-    piecePrice: product.piece_price,
-    packPrice: product.pack_price,
-    boxPrice: product.box_price,
-    imageUrl: product.image_url,
-    isNew: product.is_new,
+    name: product.name || '',
+    productCode: product.product_code || '',
+    boxQuantity: validBoxQuantity,
+    piecePrice: validPiecePrice,
+    packPrice: validPackPrice,
+    boxPrice: validBoxPrice,
+    imageUrl: product.image_url || '',
+    isNew: !!product.is_new,
     createdAt: createdDate,
-    updated_at: product.updated_at, // إضافة حقل تاريخ التحديث
+    updated_at: product.updated_at || new Date().toISOString(), // إضافة حقل تاريخ التحديث
     categoryId: product.category_id
   };
+  
+  // طباعة النتيجة بعد التحويل للتشخيص
+  console.log('بعد تحويل المنتج إلى نموذج التطبيق:', result);
+  
+  return result;
 }
 
 // دالة مساعدة لتحويل أسماء الحقول من الحالة الجملية إلى صيغة الشرطة السفلية
@@ -482,25 +523,42 @@ export async function forceRefreshFromServer() {
     
     console.log('تم تحميل البيانات بنجاح من السيرفر:', data.length);
     
+    // طباعة البيانات المستلمة من السيرفر للتشخيص
+    console.log('عينة من بيانات السيرفر:', data.slice(0, 2));
+    
     // تحويل البيانات إلى نموذج التطبيق مع التأكد من صحة القيم
     const appModels = data.map(item => {
+      // تحويل البيانات من تنسيق قاعدة البيانات إلى تنسيق التطبيق
       const model = mapDatabaseToAppModel(item);
       
+      // طباعة نتيجة التحويل للتشخيص
+      console.log('نتيجة التحويل من قاعدة البيانات:', model);
+      
       // التأكد من وجود جميع الحقول المطلوبة وبالأنواع الصحيحة
-      return {
+      const validatedModel = {
         id: model?.id?.toString() || '',
         name: model?.name || '',
         productCode: model?.productCode || '',
-        boxQuantity: typeof model?.boxQuantity === 'number' ? model.boxQuantity : 0,
-        piecePrice: typeof model?.piecePrice === 'number' ? model.piecePrice : 0,
-        packPrice: typeof model?.packPrice === 'number' ? model.packPrice : 0,
-        boxPrice: typeof model?.boxPrice === 'number' ? model.boxPrice : 0,
+        // استخدام تحقق دقيق من القيم الرقمية
+        boxQuantity: typeof model?.boxQuantity === 'number' ? model.boxQuantity : 
+                     model?.boxQuantity ? Number(model.boxQuantity) : 0,
+        piecePrice: typeof model?.piecePrice === 'number' ? model.piecePrice : 
+                    model?.piecePrice ? Number(model.piecePrice) : 0,
+        packPrice: typeof model?.packPrice === 'number' ? model.packPrice : 
+                   model?.packPrice ? Number(model.packPrice) : 0,
+        boxPrice: typeof model?.boxPrice === 'number' ? model.boxPrice : 
+                  model?.boxPrice ? Number(model.boxPrice) : 0,
         imageUrl: model?.imageUrl || '',
         isNew: !!model?.isNew,
         createdAt: model?.createdAt || new Date().toISOString(),
         created_at: model?.createdAt || new Date().toISOString(),
         updated_at: model?.updated_at || new Date().toISOString()
       };
+      
+      // طباعة النموذج النهائي المتحقق منه للتشخيص
+      console.log('النموذج النهائي بعد التحقق:', validatedModel);
+      
+      return validatedModel;
     });
     
     // تحديث البيانات المحلية
@@ -688,21 +746,36 @@ export async function resetAndSyncProducts(products: any[]) {
       // تأكد من وجود كل الحقول المطلوبة
       const now = new Date().toISOString();
       
+      // طباعة القيم للتشخيص
+      console.log('تحضير المنتج للإرسال إلى السيرفر:', {
+        id: product.id,
+        name: product.name,
+        productCode: product.productCode,
+        boxQuantity: product.boxQuantity,
+        piecePrice: product.piecePrice,
+        packPrice: product.packPrice,
+        boxPrice: product.boxPrice
+      });
+      
       return {
         id: product.id || ('new-' + Date.now() + Math.random().toString(36).substring(2, 9)),
         name: product.name || 'منتج بدون اسم',
         product_code: product.productCode || '',
-        box_quantity: product.boxQuantity || 0,
-        piece_price: product.piecePrice || 0,
-        pack_price: product.packPrice || 0,
-        box_price: product.boxPrice || 0,
+        // استخدام التحقق الصريح وليس || للقيم الرقمية
+        box_quantity: typeof product.boxQuantity === 'number' ? product.boxQuantity : 0,
+        piece_price: typeof product.piecePrice === 'number' ? product.piecePrice : 0,
+        pack_price: typeof product.packPrice === 'number' ? product.packPrice : 0,
+        box_price: typeof product.boxPrice === 'number' ? product.boxPrice : 0,
         image_url: product.imageUrl || '',
-        is_new: product.isNew || false,
+        is_new: product.isNew === true,
         created_at: product.createdAt || now,
         updated_at: new Date().toISOString(), // تحديث دائماً
         category_id: product.categoryId || null
       };
     });
+    
+    // طباعة البيانات المُعدة للتشخيص
+    console.log('البيانات الجاهزة للإرسال إلى Supabase:', dbProducts);
     
     // استخدام upsert بدلاً من delete ثم insert
     const { data: upsertedProducts, error: upsertError } = await supabase

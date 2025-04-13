@@ -36,6 +36,9 @@ export default function Footer() {
           <p className="text-center text-gray-400">
             &copy; {new Date().getFullYear()} سنتر هي و بس. جميع الحقوق محفوظة.
           </p>
+          <p className="text-center text-gray-400 mt-2">
+            Developed by Moataz Sakr
+          </p>
         </div>
       </div>
     </footer>
