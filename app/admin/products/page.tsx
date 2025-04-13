@@ -306,24 +306,38 @@ export default function AdminProducts() {
       const serverProducts = await resetAndSyncProducts(products);
       
       if (serverProducts) {
-        // تحديث واجهة المستخدم بالمنتجات المزامنة
-        setProducts(serverProducts as unknown as Product[]);
-        console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
-        
-        // التأكد من تحديث البيانات المحلية أيضاً
-        localStorage.setItem('products', JSON.stringify(serverProducts));
-        try {
-          await saveData('products', serverProducts);
-        } catch (e) {
-          console.error('خطأ في حفظ البيانات محلياً:', e);
-        }
-        
-        if (showNotification) {
-          setNotification({
-            message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
-            type: "success"
-          });
-          setTimeout(() => setNotification(null), 5000);
+        // فحص نوع البيانات المرجعة - إما مصفوفة أو كائن
+        if (Array.isArray(serverProducts)) {
+          // تحديث واجهة المستخدم بالمنتجات المزامنة
+          setProducts(serverProducts as Product[]);
+          console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
+          
+          // التأكد من تحديث البيانات المحلية أيضاً
+          localStorage.setItem('products', JSON.stringify(serverProducts));
+          try {
+            await saveData('products', serverProducts);
+          } catch (e) {
+            console.error('خطأ في حفظ البيانات محلياً:', e);
+          }
+          
+          if (showNotification) {
+            setNotification({
+              message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
+              type: "success"
+            });
+            setTimeout(() => setNotification(null), 5000);
+          }
+        } else {
+          // التعامل مع حالة الكائن (success, message)
+          console.log("نتيجة المزامنة:", serverProducts.message);
+          
+          if (showNotification) {
+            setNotification({
+              message: serverProducts.message,
+              type: serverProducts.success ? "success" : "warning"
+            });
+            setTimeout(() => setNotification(null), 5000);
+          }
         }
       } else {
         console.log("لم يتم العثور على منتجات في السيرفر");
