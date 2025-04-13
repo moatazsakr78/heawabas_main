@@ -381,9 +381,31 @@ export default function AdminProducts() {
     if (isOnline()) {
       try {
         console.log('جاري مزامنة المنتجات مع السيرفر...');
-        await saveProductsToSupabase(newProducts);
-        syncSuccess = true;
-        console.log('تمت مزامنة المنتجات مع السيرفر بنجاح');
+        
+        // استخدام resetAndSyncProducts بدلاً من saveProductsToSupabase للمزامنة الكاملة
+        const result = await resetAndSyncProducts(newProducts);
+        
+        if (Array.isArray(result)) {
+          syncSuccess = true;
+          console.log('تمت مزامنة المنتجات مع السيرفر بنجاح، عدد المنتجات:', result.length);
+          // تحديث البيانات المحلية بالبيانات المُرجعة من السيرفر
+          setProducts(result as Product[]);
+          saveData('products', result);
+          localStorage.setItem('products', JSON.stringify(result));
+        } else if (typeof result === 'object') {
+          if (result.success) {
+            syncSuccess = true;
+            console.log('تمت مزامنة المنتجات مع السيرفر بنجاح:', result.message);
+          } else {
+            errorMessage = result.message || 'خطأ غير معروف في المزامنة';
+            console.error('خطأ في الحفظ إلى السيرفر:', errorMessage);
+            setNotification({
+              message: `تم حفظ البيانات محلياً فقط. ${errorMessage}`,
+              type: 'warning'  // تغيير النوع إلى تحذير بدلاً من خطأ لأن البيانات نُفذت محلياً
+            });
+            setTimeout(() => setNotification(null), 8000);
+          }
+        }
       } catch (error: any) {
         console.error('خطأ في الحفظ إلى السيرفر:', error);
         
@@ -391,7 +413,7 @@ export default function AdminProducts() {
         errorMessage = error.userFriendlyMessage || error.message || 'خطأ غير معروف في المزامنة';
         
         setNotification({
-          message: `تم حفظ البيانات محليًا فقط. ${errorMessage}`,
+          message: `تم حفظ البيانات محلياً فقط. ${errorMessage}`,
           type: 'warning'  // تغيير النوع إلى تحذير بدلاً من خطأ لأن البيانات نُفذت محلياً
         });
         setTimeout(() => setNotification(null), 8000);
@@ -412,7 +434,7 @@ export default function AdminProducts() {
         setNotification({
           message: isOnline() && syncSuccess 
             ? 'تم حفظ التغييرات بنجاح ومزامنتها مع السيرفر. التغييرات ستظهر في جميع الأجهزة.' 
-            : 'تم حفظ التغييرات محليًا فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
+            : 'تم حفظ التغييرات محلياً فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
           type: 'success'
         });
       }
@@ -468,9 +490,21 @@ export default function AdminProducts() {
       setIsSyncing(true);
       try {
         console.log('جاري مزامنة التغييرات مع السيرفر...');
-        const result = await saveProductsToSupabase(productsToSync);
-        if (typeof result === 'boolean' && result) {
-          console.log('تم مزامنة التغييرات مع السيرفر بنجاح');
+        
+        // استخدام resetAndSyncProducts بدلاً من saveProductsToSupabase
+        // هذه الوظيفة تقوم بمزامنة كاملة وتضمن أن البيانات في السيرفر مطابقة تماماً للبيانات المحلية
+        const result = await resetAndSyncProducts(productsToSync);
+        
+        if (Array.isArray(result)) {
+          console.log('تم مزامنة التغييرات مع السيرفر بنجاح، عدد المنتجات:', result.length);
+          
+          // تأكد من تحديث واجهة المستخدم ببيانات المنتجات المحدثة
+          setProducts(result as Product[]);
+          
+          // التأكد من تحديث البيانات المحلية أيضاً
+          saveData('products', result);
+          localStorage.setItem('products', JSON.stringify(result));
+          
           setNotification({
             message: 'تم مزامنة التغييرات مع السيرفر بنجاح',
             type: 'success'
@@ -482,6 +516,11 @@ export default function AdminProducts() {
               message: `تم الحفظ محلياً فقط: ${result.message}`,
               type: 'warning'
             });
+          } else {
+            setNotification({
+              message: result.message,
+              type: 'success'
+            });
           }
         }
       } catch (error: any) {
@@ -492,7 +531,7 @@ export default function AdminProducts() {
         });
       } finally {
         setIsSyncing(false);
-        setTimeout(() => setNotification(null), 3000);
+        setTimeout(() => setNotification(null), 5000);
       }
     }
   };
