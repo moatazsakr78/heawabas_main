@@ -65,12 +65,18 @@ export default function CategoryList({ showAll = false }: CategoryListProps) {
         >
           <div className="rounded-lg overflow-hidden bg-white shadow-md transition-shadow group-hover:shadow-lg">
             <div className="relative h-48">
-              <Image
-                src={category.image}
-                alt={category.name}
-                fill
-                className="object-cover transition-transform group-hover:scale-105"
-              />
+              {category.image ? (
+                <Image
+                  src={category.image}
+                  alt={category.name}
+                  fill
+                  className="object-cover transition-transform group-hover:scale-105"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                  <span className="text-gray-400">{category.name}</span>
+                </div>
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
               <h3 className="absolute bottom-0 left-0 right-0 p-4 text-white text-lg font-medium">
                 {category.name}
