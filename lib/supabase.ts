@@ -460,8 +460,8 @@ export async function syncProductsFromSupabase(force = false) {
           console.error('فشل في تحديث/إضافة المنتجات:', upsertError);
           
           // حفظ البيانات محلياً على أي حال
-          localStorage.setItem('products', JSON.stringify(products));
-          await saveData('products', products);
+          localStorage.setItem('products', JSON.stringify(uniqueProducts));
+          await saveData('products', uniqueProducts);
           
           return {
             success: false,
@@ -487,7 +487,7 @@ export async function syncProductsFromSupabase(force = false) {
         // تحويل البيانات المسترجعة من السيرفر إلى صيغة التطبيق
         const finalProducts = allCurrentProducts ? 
           allCurrentProducts.map(mapDatabaseToAppModel) : 
-          products; // استخدام البيانات المحلية إذا فشل جلب البيانات من السيرفر
+          uniqueProducts; // استخدام البيانات المحلية إذا فشل جلب البيانات من السيرفر
         
         console.log(`تم استرجاع ${finalProducts.length} منتج من السيرفر بعد التحديث`);
         
@@ -508,7 +508,15 @@ export async function syncProductsFromSupabase(force = false) {
         return finalProducts;
       } catch (error) {
         console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', error);
-        // في حالة الفشل، استخدم البيانات المحلية على الأقل
+        // محاولة الحفظ محلياً على الأقل
+        try {
+          localStorage.setItem('products', JSON.stringify(localData));
+          await saveData('products', localData);
+          console.log('تم حفظ البيانات محلياً على الرغم من فشل المزامنة');
+        } catch (localError) {
+          console.error('فشل حتى في الحفظ المحلي:', localError);
+        }
+        
         return localData;
       }
     }
