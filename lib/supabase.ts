@@ -174,21 +174,6 @@ export async function saveProductsToSupabase(products: any[]): Promise<boolean |
   try {
     console.log(`Saving ${products.length} products to Supabase`);
 
-    // حذف المنتجات الموجودة حاليًا
-    const { error: deleteError } = await supabase
-      .from('products')
-      .delete()
-      .neq('id', 'placeholder');
-
-    if (deleteError) {
-      console.error('Failed to delete existing products:', deleteError);
-      const errorDetails = logSupabaseError(deleteError);
-      return {
-        success: false,
-        message: errorDetails.userFriendlyMessage
-      };
-    }
-
     // تصفية المنتجات للحصول على منتجات فريدة
     const uniqueProductsMap = new Map();
     for (const product of products) {
@@ -199,12 +184,18 @@ export async function saveProductsToSupabase(products: any[]): Promise<boolean |
     // تحويل المنتجات إلى النموذج المناسب للقاعدة
     const dbProducts = uniqueProducts.map(product => mapAppModelToDatabase(product));
 
-    // حفظ المنتجات
-    const { error: insertError } = await supabase.from('products').insert(dbProducts);
+    // استخدام upsert بدلاً من delete ثم insert
+    // هذا سيقوم بتحديث المنتجات الموجودة وإضافة المنتجات الجديدة
+    const { error: upsertError } = await supabase
+      .from('products')
+      .upsert(dbProducts, { 
+        onConflict: 'id',  // تحديد العمود الذي يتم استخدامه للتعرف على المنتج
+        ignoreDuplicates: false  // نريد تحديث السجلات الموجودة، وليس تجاهلها
+      });
 
-    if (insertError) {
-      console.error('Failed to save products to Supabase:', insertError);
-      const errorDetails = logSupabaseError(insertError);
+    if (upsertError) {
+      console.error('Failed to save products to Supabase:', upsertError);
+      const errorDetails = logSupabaseError(upsertError);
       return {
         success: false,
         message: errorDetails.userFriendlyMessage
@@ -607,32 +598,9 @@ export async function resetAndSyncProducts(products: any[]) {
       };
     }
     
-    // 1. حذف جميع المنتجات الموجودة
-    console.log('حذف جميع المنتجات من قاعدة البيانات...');
-    const { error: deleteError } = await supabase
-      .from('products')
-      .delete()
-      .neq('id', '0'); // لحذف جميع الصفوف (حيث المعرف لا يساوي 0)
-    
-    if (deleteError) {
-      console.error('فشل في حذف المنتجات:', deleteError);
-      
-      // إذا فشل الحذف بسبب مشكلة RLS، نحفظ البيانات محلياً فقط
-      if (deleteError.message.includes('row-level security') || deleteError.message.includes('permission')) {
-        // حفظ البيانات محلياً
-        localStorage.setItem('products', JSON.stringify(products));
-        await saveData('products', products);
-        
-        return {
-          success: false,
-          message: 'تم الحفظ محلياً فقط. قيود أمان Supabase تمنع المزامنة.'
-        };
-      }
-    } else {
-      console.log('تم حذف جميع المنتجات بنجاح');
-    }
-    
-    // 2. إضافة المنتجات الجديدة
+    // لن نقوم بحذف المنتجات القديمة، بل بتحديثها
+
+    // تحضير المنتجات للإضافة أو التحديث
     if (!products || products.length === 0) {
       console.log('لا توجد منتجات لإضافتها');
       return {
@@ -657,18 +625,22 @@ export async function resetAndSyncProducts(products: any[]) {
         image_url: product.imageUrl || '',
         is_new: product.isNew || false,
         created_at: product.createdAt || now,
+        updated_at: new Date().toISOString(), // تحديث دائماً
         category_id: product.categoryId || null
       };
     });
     
-    // إضافة المنتجات
-    const { data: addedProducts, error: addError } = await supabase
+    // استخدام upsert بدلاً من delete ثم insert
+    const { data: upsertedProducts, error: upsertError } = await supabase
       .from('products')
-      .insert(dbProducts)
+      .upsert(dbProducts, {
+        onConflict: 'id',
+        ignoreDuplicates: false // نريد تحديث السجلات الموجودة
+      })
       .select();
     
-    if (addError) {
-      console.error('فشل في إضافة المنتجات:', addError);
+    if (upsertError) {
+      console.error('فشل في تحديث/إضافة المنتجات:', upsertError);
       
       // حفظ البيانات محلياً على أي حال
       localStorage.setItem('products', JSON.stringify(products));
@@ -676,57 +648,42 @@ export async function resetAndSyncProducts(products: any[]) {
       
       return {
         success: false,
-        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${addError.message}`
+        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${upsertError.message}`
       };
     }
     
-    console.log(`تم إضافة ${dbProducts.length} منتج بنجاح`);
+    console.log(`تم تحديث/إضافة ${dbProducts.length} منتج بنجاح`);
     
-    // تحديث التخزين المحلي بالمنتجات المضافة من الخادم
-    if (addedProducts && addedProducts.length > 0) {
-      // تحويل البيانات إلى نموذج التطبيق
-      const appProducts = addedProducts.map(mapDatabaseToAppModel);
-      
-      // تحديث التخزين المحلي
-      localStorage.setItem('products', JSON.stringify(appProducts));
-      await saveData('products', appProducts);
-      
-      // تحديث الطابع الزمني للمزامنة
-      lastSyncTimestamp = Date.now();
-      localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-      
-      // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
-      const event = new CustomEvent('customStorageChange', {
-        detail: { type: 'products', source: 'server' }
-      });
-      window.dispatchEvent(event);
-      
-      return {
-        success: true,
-        message: `تمت المزامنة بنجاح. تم تحديث ${appProducts.length} منتج.`
-      };
-    }
+    // تحديث الطابع الزمني للمزامنة
+    lastSyncTimestamp = Date.now();
+    localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
     
-    return {
-      success: true,
-      message: 'تمت المزامنة بنجاح.'
-    };
+    // حفظ في التخزين المحلي أيضاً للتأكد من التزامن
+    localStorage.setItem('products', JSON.stringify(products));
+    await saveData('products', products);
+    
+    // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
+    const event = new CustomEvent('customStorageChange', {
+      detail: { type: 'products', source: 'server' }
+    });
+    window.dispatchEvent(event);
+    
+    return upsertedProducts || [];
   } catch (error: any) {
     console.error('خطأ في resetAndSyncProducts:', error);
     
-    // حفظ البيانات محلياً على أي حال
-    if (products && products.length > 0) {
+    // محاولة الحفظ محلياً على الأقل
+    try {
       localStorage.setItem('products', JSON.stringify(products));
-      try {
-        await saveData('products', products);
-      } catch (e) {
-        console.error('فشل في حفظ البيانات في التخزين المحلي:', e);
-      }
+      await saveData('products', products);
+      console.log('تم حفظ البيانات محلياً على الرغم من فشل المزامنة');
+    } catch (localError) {
+      console.error('فشل حتى في الحفظ المحلي:', localError);
     }
     
     return {
       success: false,
-      message: `تم الحفظ محلياً فقط. خطأ غير متوقع: ${error.message || 'خطأ غير معروف'}`
+      message: `فشل في المزامنة: ${error.message}. تم الحفظ محلياً فقط.`
     };
   }
 } 
