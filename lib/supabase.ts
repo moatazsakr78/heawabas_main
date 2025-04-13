@@ -77,7 +77,7 @@ function mapAppModelToDatabase(product: any) {
     box_price: product.boxPrice,
     image_url: product.imageUrl,
     is_new: product.isNew,
-    createdAt: product.createdAt, // احتفظ بـ createdAt كما هو للتوافق مع الكود القديم
+    created_at: product.createdAt,
     category_id: product.categoryId
   };
 }
@@ -143,8 +143,8 @@ export async function saveProductsToSupabase(products: any[]) {
       }
       
       // تأكد من أن التاريخ سلسلة نصية
-      if (dbProduct.createdAt instanceof Date) {
-        dbProduct.createdAt = dbProduct.createdAt.toISOString();
+      if (dbProduct.created_at instanceof Date) {
+        dbProduct.created_at = dbProduct.created_at.toISOString();
       }
       
       // تأكد من وجود معرف صالح
@@ -262,7 +262,7 @@ export async function loadProductsFromSupabase() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .order('createdAt', { ascending: false });
+      .order('created_at', { ascending: false });
     
     if (error) {
       console.error('خطأ في تحميل المنتجات من Supabase:', error);
@@ -324,7 +324,7 @@ export async function syncProductsFromSupabase(force = false) {
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .order('createdAt', { ascending: false });
+        .order('created_at', { ascending: false });
       
       if (error) {
         throw error;
@@ -402,8 +402,8 @@ export async function syncProductsFromSupabase(force = false) {
         const dbProducts = uniqueProducts.map((product: any) => {
           const dbProduct = mapAppModelToDatabase(product);
           
-          if (dbProduct && dbProduct.createdAt instanceof Date) {
-            dbProduct.createdAt = dbProduct.createdAt.toISOString();
+          if (dbProduct && dbProduct.created_at instanceof Date) {
+            dbProduct.created_at = dbProduct.created_at.toISOString();
           }
           
           return dbProduct || {};
@@ -457,7 +457,7 @@ export async function forceRefreshFromServer() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .order('createdAt', { ascending: false });
+      .order('created_at', { ascending: false });
     
     if (error) {
       throw error;
