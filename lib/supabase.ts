@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Product } from '@/types';
 import { saveData } from './localStorage';
+import { logSupabaseError, logSuccessfulSync } from './supabase-error-handler';
 
 // تعريف interface للخطأ المخصص
 interface EnhancedError extends Error {
@@ -155,269 +156,81 @@ async function createProductsTable() {
   }
 }
 
-// وظائف التعامل مع المنتجات
-export async function saveProductsToSupabase(products: any[]) {
+/**
+ * حفظ المنتجات في Supabase
+ * @param products المنتجات المراد حفظها
+ * @returns {Promise<boolean|{success: boolean, message: string}>} نتيجة العملية
+ */
+export async function saveProductsToSupabase(products: any[]): Promise<boolean | { success: boolean; message: string }> {
+  if (!isOnline()) {
+    console.error('Not online, cannot save to Supabase');
+    const errorDetails = logSupabaseError(new Error('غير متصل بالإنترنت، تم الحفظ محلياً فقط'));
+    return {
+      success: false,
+      message: errorDetails.userFriendlyMessage
+    };
+  }
+
   try {
-    if (!isOnline()) {
-      console.error('خطأ المزامنة: لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.');
-      throw new Error('لا يوجد اتصال بالإنترنت');
+    console.log(`Saving ${products.length} products to Supabase`);
+
+    // حذف المنتجات الموجودة حاليًا
+    const { error: deleteError } = await supabase
+      .from('products')
+      .delete()
+      .neq('id', 'placeholder');
+
+    if (deleteError) {
+      console.error('Failed to delete existing products:', deleteError);
+      const errorDetails = logSupabaseError(deleteError);
+      return {
+        success: false,
+        message: errorDetails.userFriendlyMessage
+      };
     }
 
-    if (!products || !Array.isArray(products)) {
-      console.error('خطأ في بنية البيانات: المنتجات المقدمة ليست مصفوفة صالحة.', products);
-      throw new Error('بيانات المنتجات غير صالحة: يجب أن تكون مصفوفة من المنتجات');
+    // تصفية المنتجات للحصول على منتجات فريدة
+    const uniqueProductsMap = new Map();
+    for (const product of products) {
+      uniqueProductsMap.set(product.id, product);
+    }
+    const uniqueProducts = Array.from(uniqueProductsMap.values());
+
+    // تحويل المنتجات إلى النموذج المناسب للقاعدة
+    const dbProducts = uniqueProducts.map(product => mapAppModelToDatabase(product));
+
+    // حفظ المنتجات
+    const { error: insertError } = await supabase.from('products').insert(dbProducts);
+
+    if (insertError) {
+      console.error('Failed to save products to Supabase:', insertError);
+      const errorDetails = logSupabaseError(insertError);
+      return {
+        success: false,
+        message: errorDetails.userFriendlyMessage
+      };
     }
 
-    console.log('بدء حفظ المنتجات في Supabase...', products.length, 'منتج');
+    console.log(`Successfully saved ${uniqueProducts.length} products to Supabase`);
     
-    // 1. تنظيف وتجهيز البيانات (حذف التكرارات)
-    const uniqueProducts = products.filter((p, index, self) => 
-      index === self.findIndex(t => t.id === p.id)
-    );
+    // تحديث وقت المزامنة الأخير
+    localStorage.setItem('lastSyncTime', Date.now().toString());
+    // تسجيل نجاح المزامنة
+    logSuccessfulSync();
     
-    // طباعة أول منتج للتحقق
-    if (uniqueProducts.length > 0) {
-      console.log('نموذج منتج من التطبيق:', JSON.stringify(uniqueProducts[0]));
-    } else {
-      console.warn('تحذير: لا توجد منتجات للحفظ بعد تصفية المنتجات المكررة');
-    }
-    
-    // 2. تحويل البيانات إلى الصيغة المطلوبة لقاعدة البيانات
-    interface InvalidProduct {
-      product: any;
-      error: string;
-    }
-    
-    const invalidProducts: InvalidProduct[] = [];
-    const serializedProducts = uniqueProducts.map(product => {
-      if (!product || typeof product !== 'object') {
-        console.error('خطأ في بنية المنتج: المنتج ليس كائناً صالحاً', product);
-        invalidProducts.push({ product, error: 'ليس كائناً صالحاً' });
-        return null;
-      }
+    // إرسال حدث عند نجاح المزامنة
+    window.dispatchEvent(new CustomEvent('supabase-sync-success', {
+      detail: { count: uniqueProducts.length }
+    }));
 
-      const dbProduct = mapAppModelToDatabase(product);
-      
-      // تأكد من أن البيانات صالحة
-      if (!dbProduct) {
-        console.warn('تم تخطي منتج غير صالح:', product?.id || 'بدون معرف', 'السبب: فشل التحويل إلى نموذج قاعدة البيانات');
-        invalidProducts.push({ product, error: 'فشل التحويل إلى نموذج قاعدة البيانات' });
-        return null;
-      }
-      
-      // تأكد من أن التاريخ سلسلة نصية
-      if (dbProduct.created_at instanceof Date) {
-        dbProduct.created_at = dbProduct.created_at.toISOString();
-      } else if (dbProduct.created_at === undefined || dbProduct.created_at === null) {
-        console.warn('تحذير: تاريخ إنشاء غير محدد للمنتج:', dbProduct.id);
-        dbProduct.created_at = new Date().toISOString();
-      } else if (typeof dbProduct.created_at !== 'string') {
-        console.warn('تحذير: تنسيق تاريخ إنشاء غير صالح للمنتج:', dbProduct.id);
-        try {
-          dbProduct.created_at = new Date(dbProduct.created_at).toISOString();
-        } catch (error) {
-          console.error('خطأ في تحويل التاريخ:', error);
-          dbProduct.created_at = new Date().toISOString();
-        }
-      }
-      
-      // تأكد من وجود معرف صالح
-      if (!dbProduct.id || dbProduct.id.trim() === '') {
-        console.warn('تحذير: معرف غير صالح للمنتج. إنشاء معرف جديد.');
-        dbProduct.id = Date.now().toString() + Math.random().toString(36).substring(2, 9);
-      }
-      
-      return dbProduct;
-    }).filter(Boolean); // استبعاد القيم null
-    
-    if (serializedProducts.length === 0) {
-      console.error('خطأ: لا توجد منتجات للحفظ بعد التحقق من الصلاحية.', 
-        invalidProducts.length > 0 ? 
-          `تم رفض ${invalidProducts.length} منتج، أسباب الرفض: ${JSON.stringify(invalidProducts.map(p => p.error))}` : 
-          'لم تقدم أي منتجات صالحة');
-      throw new Error('لا توجد منتجات صالحة للحفظ');
-    }
-    
-    // طباعة نموذج للتحقق بعد التحويل
-    console.log('نموذج المنتج للإدراج بعد التحويل:', JSON.stringify(serializedProducts[0]));
-    
-    // 3. حاول الإدراج باستخدام الطلب المباشر
-    try {
-      console.log('إدراج المنتجات باستخدام طلب مباشر...');
-      
-      const response = await fetch(`${supabaseUrl}/rest/v1/products`, {
-        method: 'POST',
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(serializedProducts)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('خطأ في إدراج المنتجات:', response.status, response.statusText);
-        console.error('تفاصيل الخطأ من الخادم:', errorText);
-        
-        // تحليل نوع الخطأ وتقديم رسالة أكثر تحديداً
-        let errorDetails = 'خطأ غير معروف في الاتصال بالخادم';
-        
-        if (response.status === 401 || response.status === 403) {
-          errorDetails = 'خطأ في المصادقة: تحقق من صلاحية مفتاح API الخاص بك ومن الصلاحيات المناسبة للجدول.';
-        } else if (response.status === 404) {
-          errorDetails = 'لم يتم العثور على جدول المنتجات: تأكد من إنشاء جدول المنتجات في Supabase.';
-        } else if (response.status === 409) {
-          errorDetails = 'تعارض في البيانات: ربما تكون هناك منتجات مكررة أو مخالفة للقيود الفريدة.';
-        } else if (response.status === 422) {
-          errorDetails = 'بيانات غير صالحة: تأكد من أن هيكل المنتجات يتوافق مع مخطط قاعدة البيانات.';
-        } else if (response.status >= 500) {
-          errorDetails = 'خطأ في خادم Supabase: يرجى المحاولة مرة أخرى لاحقاً أو التحقق من حالة الخدمة.';
-        }
-        
-        throw new Error(`فشل الإدراج: ${response.status} ${errorDetails} - ${errorText}`);
-      }
-      
-      const responseData = await response.json();
-      console.log('تم إدراج المنتجات بنجاح:', responseData.length);
-      
-      // تحديث الطابع الزمني للمزامنة
-      lastSyncTimestamp = Date.now();
-      localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-      
-      // إعلام التطبيق بالتغييرات
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('storage'));
-        window.dispatchEvent(new CustomEvent('customStorageChange', { 
-          detail: { type: 'products', timestamp: Date.now(), source: 'server' }
-        }));
-      }
-      
-      // تحويل البيانات المسترجعة إلى نموذج التطبيق
-      const appModels = responseData.map(mapDatabaseToAppModel);
-      return appModels;
-    } catch (directError) {
-      console.error('فشل الطلب المباشر:', directError);
-      
-      // 4. إذا فشل الطلب المباشر، حاول باستخدام واجهة Supabase
-      console.log('محاولة استخدام واجهة Supabase كحل بديل...');
-      
-      // حاول إدراج واحد تلو الآخر بدلاً من دفعة واحدة
-      const results = [];
-      
-      interface ProductError {
-        productId: string;
-        error: string;
-        code?: string;
-        details?: string;
-        hint?: string;
-        stack?: string;
-      }
-      
-      const errors: ProductError[] = [];
-      
-      for (const product of serializedProducts) {
-        // تخطي المنتجات غير الصالحة
-        if (!product || !product.id) {
-          console.warn('تخطي منتج غير صالح في الإدراج الفردي');
-          continue;
-        }
-        
-        try {
-          const { data, error } = await supabase
-            .from('products')
-            .insert(product)
-            .select();
-          
-          if (error) {
-            console.error(`خطأ في إدراج المنتج ${product.id}:`, error);
-            errors.push({
-              productId: product.id,
-              error: error.message,
-              code: error.code,
-              details: error.details,
-              hint: error.hint || 'لا توجد تلميحات إضافية'
-            });
-          } else if (data && data.length > 0) {
-            console.log(`تم إدراج المنتج بنجاح: ${product.id}`);
-            results.push(mapDatabaseToAppModel(data[0]));
-          } else {
-            console.warn(`لم يتم إرجاع بيانات للمنتج المدرج: ${product.id}`);
-          }
-        } catch (singleError: unknown) {
-          const error = singleError as Error;
-          console.error(`استثناء في إدراج المنتج الفردي ${product.id}:`, error);
-          errors.push({
-            productId: product.id,
-            error: error.message || 'خطأ غير معروف',
-            stack: error.stack
-          });
-        }
-      }
-      
-      if (results.length > 0) {
-        console.log(`تم إدراج ${results.length} من ${serializedProducts.length} منتج`);
-        
-        if (errors.length > 0) {
-          console.warn(`فشل إدراج ${errors.length} منتج. تفاصيل الأخطاء:`, JSON.stringify(errors, null, 2));
-        }
-        
-        return results;
-      }
-      
-      // إذا فشلت جميع المحاولات، أظهر تفاصيل الأخطاء وارجع المنتجات الأصلية
-      if (errors.length > 0) {
-        console.error('فشلت جميع محاولات الإدراج. تفاصيل الأخطاء:', JSON.stringify(errors, null, 2));
-        
-        // تحليل الأخطاء الشائعة وتقديم نصائح محددة
-        interface ErrorCounts {
-          [key: string]: number;
-        }
-        
-        const commonErrors: ErrorCounts = errors.reduce((acc: ErrorCounts, curr) => {
-          const errorType = curr.code || curr.error || 'unknown';
-          acc[errorType] = (acc[errorType] || 0) + 1;
-          return acc;
-        }, {});
-        
-        console.error('تحليل الأخطاء الشائعة:', commonErrors);
-        
-        let errorHint = 'تحقق من الاتصال بالإنترنت وهيكل البيانات وإعدادات Supabase.';
-        if (commonErrors['23505']) {
-          errorHint = 'أخطاء تكرار المعرفات: تأكد من أن جميع المنتجات لها معرفات فريدة.';
-        } else if (commonErrors['42P01']) {
-          errorHint = 'الجدول غير موجود: تأكد من إنشاء جدول المنتجات في Supabase.';
-        } else if (commonErrors['23502']) {
-          errorHint = 'حقول إلزامية مفقودة: تأكد من ملء جميع الحقول المطلوبة.';
-        } else if (commonErrors['42703']) {
-          errorHint = 'حقول غير موجودة: تأكد من تطابق هيكل البيانات مع مخطط قاعدة البيانات.';
-        } else if (commonErrors['unauthorized']) {
-          errorHint = 'خطأ في المصادقة: تحقق من صلاحية مفتاح API ومن الصلاحيات المناسبة.';
-        }
-        
-        throw new Error(`فشلت مزامنة المنتجات: ${errorHint}`);
-      }
-      
-      console.log('فشلت جميع محاولات الإدراج، استخدام البيانات المحلية فقط');
-      return uniqueProducts; // إرجاع البيانات الأصلية بعد إزالة التكرارات
-    }
-  } catch (error: any) {
-    console.error('خطأ في saveProductsToSupabase:', error);
-    
-    // تحسين رسالة الخطأ للمستخدم بناءً على نوع الخطأ
-    let userFriendlyError = error.message || 'حدث خطأ غير معروف أثناء حفظ المنتجات';
-    
-    if (userFriendlyError.includes('fetch')) {
-      userFriendlyError = 'فشل الاتصال بخادم Supabase. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.';
-    } else if (userFriendlyError.includes('timeout')) {
-      userFriendlyError = 'انتهت مهلة الطلب. قد يكون الخادم بطيئًا أو الاتصال ضعيفًا. حاول مرة أخرى.';
-    } else if (userFriendlyError.includes('parse') || userFriendlyError.includes('JSON')) {
-      userFriendlyError = 'خطأ في تنسيق البيانات. تأكد من أن المنتجات بصيغة صحيحة.';
-    }
-    
-    error.userFriendlyMessage = userFriendlyError;
-    throw error;
+    return true;
+  } catch (error) {
+    console.error('Error in saveProductsToSupabase:', error);
+    const errorDetails = logSupabaseError(error);
+    return {
+      success: false,
+      message: errorDetails.userFriendlyMessage
+    };
   }
 }
 
