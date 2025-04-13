@@ -26,7 +26,7 @@ export default function AdminProducts() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning'; show?: boolean } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -113,7 +113,7 @@ export default function AdminProducts() {
           
           if (serverProducts && serverProducts.length > 0) {
             console.log('تم تحميل المنتجات من السيرفر بنجاح:', serverProducts.length);
-            setProducts(serverProducts);
+            setProducts(serverProducts.filter(Boolean) as Product[]);
             
             // تحديث التخزين المحلي
             saveData('products', serverProducts);
@@ -244,54 +244,58 @@ export default function AdminProducts() {
   };
 
   // وظيفة مزامنة البيانات وتحديث الواجهة
-  const syncProductsAndUpdate = async (force = false) => {
-    setIsSyncing(true);
-    
+  const syncProductsAndUpdate = async (showNotification = false) => {
     try {
-      if (!isOnline()) {
-        throw new Error('الجهاز غير متصل بالإنترنت. لا يمكن المزامنة.');
-      }
+      setIsLoading(true);
       
-      // استخدام الدالة الجديدة القوية للتحديث القسري
-      const serverData = await forceRefreshFromServer();
-      
-      if (serverData && serverData.length > 0) {
-        console.log('تم تحميل البيانات من السيرفر بنجاح:', serverData.length);
-        
-        // تحديث واجهة المستخدم
-        setProducts(serverData);
-        
-        setNotification({
-          message: 'تمت المزامنة بنجاح! جميع الأجهزة الآن لديها نفس البيانات.',
-          type: 'success'
-        });
-      } else {
-        // إذا لم تكن هناك بيانات على السيرفر، نرفع البيانات المحلية
-        console.log('لم يتم العثور على بيانات في السيرفر. جاري رفع البيانات المحلية...');
-        
-        if (products.length > 0) {
-          await saveProductsToSupabase(products);
-          
+      if (isOnline()) {
+        console.log("جاري المزامنة مع السيرفر...");
+        if (showNotification) {
           setNotification({
-            message: 'تم رفع البيانات المحلية إلى السيرفر بنجاح! جميع الأجهزة الآن يمكنها مزامنة هذه البيانات.',
-            type: 'success'
+            message: "جاري المزامنة مع السيرفر...",
+            type: "info"
           });
+        }
+        
+        const serverProducts = await forceRefreshFromServer();
+        if (serverProducts) {
+          setProducts(serverProducts.filter(Boolean) as Product[]);
+          console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
+          if (showNotification) {
+            setNotification({
+              message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
+              type: "success"
+            });
+          }
         } else {
+          saveProducts(products);
+          console.log("لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية");
+          if (showNotification) {
+            setNotification({
+              message: "لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية",
+              type: "warning"
+            });
+          }
+        }
+      } else {
+        console.log("الجهاز غير متصل بالإنترنت، استخدام البيانات المحلية");
+        if (showNotification) {
           setNotification({
-            message: 'لا توجد بيانات محلية للرفع إلى السيرفر.',
-            type: 'error'
+            message: "الجهاز غير متصل بالإنترنت، استخدام البيانات المحلية",
+            type: "warning"
           });
         }
       }
-    } catch (error) {
-      console.error('خطأ في مزامنة البيانات:', error);
-      setNotification({
-        message: 'حدث خطأ أثناء المزامنة مع السيرفر: ' + ((error as Error)?.message || 'خطأ غير معروف'),
-        type: 'error'
-      });
+    } catch (error: any) {
+      console.error("خطأ في مزامنة المنتجات:", error);
+      if (showNotification) {
+        setNotification({
+          message: `خطأ في مزامنة المنتجات: ${error.message || "حدث خطأ غير معروف"}`,
+          type: "error"
+        });
+      }
     } finally {
-      setIsSyncing(false);
-      setTimeout(() => setNotification(null), 5000);
+      setIsLoading(false);
     }
   };
 
@@ -506,7 +510,7 @@ export default function AdminProducts() {
       {notification && (
         <div 
           className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-md ${
-            notification.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            notification.type === 'success' ? 'bg-green-100 text-green-800' : notification.type === 'error' ? 'bg-red-100 text-red-800' : notification.type === 'info' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'
           }`}
         >
           {notification.message}

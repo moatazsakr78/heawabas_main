@@ -11,6 +11,44 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // متغير عام للإشارة إلى آخر تحديث
 let lastSyncTimestamp = 0;
 
+// دالة مساعدة لتحويل أسماء الحقول من صيغة الشرطة السفلية إلى الحالة الجملية
+function mapDatabaseToAppModel(product: any) {
+  if (!product) return null;
+  
+  return {
+    id: product.id,
+    name: product.name,
+    productCode: product.product_code,
+    boxQuantity: product.box_quantity,
+    piecePrice: product.piece_price,
+    packPrice: product.pack_price,
+    boxPrice: product.box_price,
+    imageUrl: product.image_url,
+    isNew: product.is_new,
+    createdAt: product.createdAt || product.created_at,
+    categoryId: product.category_id
+  };
+}
+
+// دالة مساعدة لتحويل أسماء الحقول من الحالة الجملية إلى صيغة الشرطة السفلية
+function mapAppModelToDatabase(product: any) {
+  if (!product) return null;
+  
+  return {
+    id: product.id,
+    name: product.name,
+    product_code: product.productCode,
+    box_quantity: product.boxQuantity,
+    piece_price: product.piecePrice,
+    pack_price: product.packPrice,
+    box_price: product.boxPrice,
+    image_url: product.imageUrl,
+    is_new: product.isNew,
+    createdAt: product.createdAt, // احتفظ بـ createdAt كما هو للتوافق مع الكود القديم
+    category_id: product.categoryId
+  };
+}
+
 // وظائف التعامل مع المنتجات
 export async function saveProductsToSupabase(products: any[]) {
   try {
@@ -36,12 +74,18 @@ export async function saveProductsToSupabase(products: any[]) {
       index === self.findIndex(t => t.id === p.id)
     );
     
-    // إعادة تنسيق البيانات للتأكد من توافقها
-    const serializedProducts = uniqueProducts.map(product => ({
-      ...product,
+    // إعادة تنسيق البيانات للتأكد من توافقها مع قاعدة البيانات
+    const serializedProducts = uniqueProducts.map(product => {
+      // تحويل البيانات إلى التنسيق المناسب لقاعدة البيانات
+      const dbProduct = mapAppModelToDatabase(product);
+      
       // تأكد من أن التاريخ سلسلة نصية
-      createdAt: product.createdAt instanceof Date ? product.createdAt.toISOString() : product.createdAt
-    }));
+      if (dbProduct && dbProduct.createdAt instanceof Date) {
+        dbProduct.createdAt = dbProduct.createdAt.toISOString();
+      }
+      
+      return dbProduct || {};
+    });
     
     // إضافة المنتجات
     const { data, error } = await supabase
@@ -64,7 +108,9 @@ export async function saveProductsToSupabase(products: any[]) {
       console.error('خطأ في حفظ وقت المزامنة:', error);
     }
     
-    return data;
+    // تحويل البيانات المسترجعة إلى نموذج التطبيق
+    const appModels = data ? data.map(mapDatabaseToAppModel) : [];
+    return appModels;
   } catch (error) {
     console.error('خطأ في saveProductsToSupabase:', error);
     throw error;
@@ -105,7 +151,9 @@ export async function loadProductsFromSupabase() {
       console.error('خطأ في حفظ وقت المزامنة:', error);
     }
     
-    return data;
+    // تحويل البيانات إلى نموذج التطبيق
+    const appModels = data.map(mapDatabaseToAppModel);
+    return appModels;
   } catch (error) {
     console.error('خطأ في loadProductsFromSupabase:', error);
     throw error;
@@ -150,7 +198,8 @@ export async function syncProductsFromSupabase(force = false) {
       
       if (data && data.length > 0) {
         console.log('تم العثور على البيانات في السيرفر:', data.length);
-        serverData = data;
+        // تحويل البيانات إلى نموذج التطبيق
+        serverData = data.map(mapDatabaseToAppModel);
       } else {
         console.log('لم يتم العثور على بيانات في السيرفر');
       }
@@ -215,16 +264,21 @@ export async function syncProductsFromSupabase(force = false) {
           index === self.findIndex((t: any) => t.id === p.id)
         );
         
-        // تأكد من أن جميع البيانات بالتنسيق الصحيح
-        const formattedProducts = uniqueProducts.map((product: any) => ({
-          ...product,
-          createdAt: product.createdAt instanceof Date ? product.createdAt.toISOString() : product.createdAt
-        }));
+        // تحويل البيانات إلى تنسيق قاعدة البيانات
+        const dbProducts = uniqueProducts.map((product: any) => {
+          const dbProduct = mapAppModelToDatabase(product);
+          
+          if (dbProduct && dbProduct.createdAt instanceof Date) {
+            dbProduct.createdAt = dbProduct.createdAt.toISOString();
+          }
+          
+          return dbProduct || {};
+        });
         
         // رفع البيانات المحلية
         const { data, error } = await supabase
           .from('products')
-          .insert(formattedProducts)
+          .insert(dbProducts)
           .select();
         
         if (error) {
@@ -233,11 +287,14 @@ export async function syncProductsFromSupabase(force = false) {
         
         console.log('تم رفع البيانات المحلية بنجاح:', data.length);
         
+        // تحويل البيانات المسترجعة إلى نموذج التطبيق
+        const appModels = data.map(mapDatabaseToAppModel);
+        
         // تحديث الطابع الزمني للمزامنة
         lastSyncTimestamp = Date.now();
         localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
         
-        return formattedProducts;
+        return appModels;
       } catch (error) {
         console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', error);
         throw error;
@@ -279,10 +336,13 @@ export async function forceRefreshFromServer() {
     
     console.log('تم تحميل البيانات بنجاح من السيرفر:', data.length);
     
+    // تحويل البيانات إلى نموذج التطبيق
+    const appModels = data.map(mapDatabaseToAppModel);
+    
     // تحديث البيانات المحلية
-    localStorage.setItem('products', JSON.stringify(data));
+    localStorage.setItem('products', JSON.stringify(appModels));
     try {
-      saveData('products', data);
+      saveData('products', appModels);
     } catch (e) {
       console.error('خطأ في حفظ البيانات في التخزين الدائم:', e);
     }
@@ -299,7 +359,7 @@ export async function forceRefreshFromServer() {
       }));
     }
     
-    return data;
+    return appModels;
   } catch (error) {
     console.error('خطأ في forceRefreshFromServer:', error);
     throw error;

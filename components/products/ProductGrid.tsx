@@ -4,7 +4,12 @@ import { useState, useEffect } from 'react';
 import ProductCard from './ProductCard';
 import { Product } from '@/types';
 import { loadData } from '@/lib/localStorage';
-import { syncProductsFromSupabase, loadProductsFromSupabase, isOnline } from '@/lib/supabase';
+import { 
+  syncProductsFromSupabase, 
+  loadProductsFromSupabase, 
+  isOnline,
+  forceRefreshFromServer 
+} from '@/lib/supabase';
 
 interface ProductGridProps {
   title?: string;
@@ -32,7 +37,7 @@ export default function ProductGrid({
       setLoading(true);
       
       try {
-        let productData: any[] = [];
+        let productData: Product[] = [];
         
         // دائماً محاولة تحميل البيانات من السيرفر أولاً إذا كان متصلاً بالإنترنت
         if (isOnline()) {
@@ -173,7 +178,14 @@ export default function ProductGrid({
       if (isOnline()) {
         console.log('Connection restored. Syncing data...');
         // محاولة مزامنة البيانات عند عودة الاتصال
-        loadProductsData();
+        try {
+          forceRefreshFromServer().then(() => {
+            loadProductsData();
+          });
+        } catch (error) {
+          console.error('Error syncing data on connection restore:', error);
+          loadProductsData();
+        }
       } else {
         console.log('Connection lost. Using local data only.');
       }
