@@ -1,0 +1,1 @@
+-- ≈‰‘«¡ ÃœÊ· ··›∆« \nCREATE TABLE IF NOT EXISTS categories (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  name TEXT NOT NULL,\n  slug TEXT NOT NULL UNIQUE,\n  image TEXT,\n  description TEXT,\n  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);
