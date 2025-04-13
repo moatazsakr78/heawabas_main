@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { CubeIcon, BarChart3, PresentationChart, Settings, Package, Tag, RefreshCw } from 'lucide-react';
+import { BarChart3, Settings, Package, Tag, RefreshCw } from 'lucide-react';
 import SyncStatusIndicator from '@/components/admin/SyncStatusIndicator';
 
 export default function DashboardPage() {

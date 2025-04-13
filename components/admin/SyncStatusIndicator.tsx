@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { getSyncStatus, SyncStatus } from '@/lib/supabase-error-handler';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CloudOff, CloudCheck, RefreshCw, AlertCircle } from 'lucide-react';
+import { CloudOff, Check, RefreshCw, AlertCircle } from 'lucide-react';
 
 /**
  * مكون لعرض حالة المزامنة مع خادم Supabase
@@ -89,7 +89,7 @@ export default function SyncStatusIndicator() {
       return {
         color: 'bg-green-500',
         text: 'متزامن',
-        icon: <CloudCheck className="w-4 h-4 ml-1" />
+        icon: <Check className="w-4 h-4 ml-1" />
       };
     }
     
