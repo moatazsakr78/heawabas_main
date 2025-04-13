@@ -88,6 +88,48 @@ export default function AdminProducts() {
       // تحميل البيانات
       await loadProductsData();
       await loadCategoriesData();
+      
+      // إضافة مستمع لأحداث التخزين لتحديث واجهة المستخدم عند تغيير البيانات
+      window.addEventListener('customStorageChange', handleStorageChange);
+      
+      // إضافة مستمع لإعادة تحميل البيانات كل دقيقة إذا كان هناك اتصال بالإنترنت
+      // هذا سيساعد في مزامنة البيانات بين الأجهزة المختلفة
+      const intervalId = setInterval(() => {
+        if (isOnline()) {
+          console.log('محاولة مزامنة البيانات من السيرفر...');
+          forceRefreshFromServer()
+            .then(serverProducts => {
+              if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
+                // مقارنة عدد المنتجات
+                const storedCount = products.length;
+                const serverCount = serverProducts.length;
+                
+                if (storedCount !== serverCount) {
+                  console.log(`تم اكتشاف تغيير في البيانات (محلياً: ${storedCount}، السيرفر: ${serverCount})`);
+                  
+                  // تحديث واجهة المستخدم والتخزين المحلي
+                  setProducts(serverProducts as Product[]);
+                  saveData('products', serverProducts);
+                  localStorage.setItem('products', JSON.stringify(serverProducts));
+                  
+                  setNotification({
+                    message: 'تم تحديث البيانات من السيرفر تلقائياً',
+                    type: 'info'
+                  });
+                  setTimeout(() => setNotification(null), 3000);
+                }
+              }
+            })
+            .catch(error => {
+              console.error('خطأ في المزامنة التلقائية:', error);
+            });
+        }
+      }, 60000); // كل دقيقة
+      
+      return () => {
+        clearInterval(intervalId);
+        window.removeEventListener('customStorageChange', handleStorageChange);
+      };
     } catch (error) {
       console.error('خطأ في تهيئة الصفحة:', error);
     } finally {
@@ -145,18 +187,23 @@ export default function AdminProducts() {
   const loadProductsData = async () => {
     try {
       setIsLoading(true);
+      console.log('بدء تحميل بيانات المنتجات...');
       
       // محاولة مزامنة المنتجات من Supabase أولاً إذا كان متصلاً بالإنترنت
       if (isOnline()) {
         try {
-          console.log('جاري تحميل المنتجات من السيرفر...');
-          const serverProducts = await loadProductsFromSupabase();
+          console.log('جاري محاولة تحميل المنتجات مباشرة من السيرفر...');
           
-          if (serverProducts && serverProducts.length > 0) {
+          // استخدام طريقة forceRefreshFromServer بدلاً من loadProductsFromSupabase
+          // هذا يضمن الحصول على أحدث البيانات من السيرفر
+          const serverProducts = await forceRefreshFromServer();
+          
+          if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
             console.log('تم تحميل المنتجات من السيرفر بنجاح:', serverProducts.length);
-            setProducts(serverProducts.filter(Boolean) as Product[]);
             
-            // تحديث التخزين المحلي
+            setProducts(serverProducts as Product[]); // تحديث حالة المنتجات
+            
+            // تحديث التخزين المحلي بالبيانات
             saveData('products', serverProducts);
             localStorage.setItem('products', JSON.stringify(serverProducts));
             
@@ -182,15 +229,20 @@ export default function AdminProducts() {
       
       if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
         console.log('جاري استخدام البيانات من التخزين الدائم:', savedProducts.length);
-        setProducts(savedProducts);
+        setProducts(savedProducts as Product[]);
         
         // إظهار رسالة توضح أن البيانات من التخزين المحلي
         if (isOnline()) {
           setNotification({
-            message: 'لم يتم العثور على بيانات في السيرفر. سيتم استخدام البيانات المحلية وتحميلها للسيرفر عند الحفظ.',
-            type: 'error'
+            message: 'تم تحميل البيانات من التخزين المحلي. جاري محاولة المزامنة مع السيرفر...',
+            type: 'info'
           });
           setTimeout(() => setNotification(null), 5000);
+          
+          // محاولة مزامنة البيانات المحلية مع السيرفر بعد التحميل
+          setTimeout(() => {
+            syncProductsAndUpdate(false);
+          }, 1000);
         }
       } else {
         // التحقق من وجود البيانات في localStorage التقليدي
@@ -589,11 +641,72 @@ export default function AdminProducts() {
   const handleDeleteProduct = async (id: string) => {
     // تأكد من وجود window قبل استخدام confirm
     if (typeof window !== 'undefined' && window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-      const newProducts = products.filter((product) => product.id !== id);
-      await saveProducts(newProducts);
+      // عرض رسالة تحميل
+      setIsLoading(true);
+      setNotification({
+        message: 'جاري حذف المنتج...',
+        type: 'info'
+      });
       
-      // قم بمزامنة التغييرات مع السيرفر مباشرة
-      await syncWithServerAfterChanges(newProducts);
+      try {
+        // حذف المنتج من القائمة المحلية
+        const newProducts = products.filter((product) => product.id !== id);
+        console.log(`تم حذف المنتج ${id}، عدد المنتجات الجديد:`, newProducts.length);
+        
+        // تحديث واجهة المستخدم أولاً لتحسين تجربة المستخدم
+        setProducts(newProducts);
+        
+        // حفظ التغييرات محلياً
+        saveData('products', newProducts);
+        localStorage.setItem('products', JSON.stringify(newProducts));
+        
+        // محاولة مزامنة التغييرات مع السيرفر
+        if (isOnline()) {
+          console.log('محاولة مزامنة الحذف مع السيرفر...');
+          
+          // استخدام resetAndSyncProducts مباشرة للحذف والمزامنة
+          const result = await resetAndSyncProducts(newProducts);
+          
+          if (Array.isArray(result)) {
+            console.log('تم مزامنة الحذف مع السيرفر بنجاح، البيانات المحدثة:', result.length);
+            
+            // تأكيد تحديث الواجهة بأحدث البيانات المعادة من السيرفر
+            setProducts(result as Product[]);
+            saveData('products', result);
+            localStorage.setItem('products', JSON.stringify(result));
+            
+            setNotification({
+              message: 'تم حذف المنتج ومزامنة التغييرات مع السيرفر بنجاح',
+              type: 'success'
+            });
+          } else if (typeof result === 'object') {
+            console.log('نتيجة مزامنة الحذف:', result.message);
+            setNotification({
+              message: result.success 
+                ? `تم حذف المنتج: ${result.message}` 
+                : `تم حذف المنتج محلياً فقط: ${result.message}`,
+              type: result.success ? 'success' : 'warning'
+            });
+          }
+        } else {
+          setNotification({
+            message: 'تم حذف المنتج محلياً فقط. سيتم المزامنة عند توفر الاتصال بالإنترنت.',
+            type: 'warning'
+          });
+        }
+      } catch (error: any) {
+        console.error('خطأ أثناء حذف المنتج:', error);
+        setNotification({
+          message: `فشل في حذف المنتج: ${error.message || 'خطأ غير معروف'}`,
+          type: 'error'
+        });
+        
+        // إعادة تحميل المنتجات للتأكد من تطابق الواجهة مع البيانات المخزنة
+        loadProductsData();
+      } finally {
+        setIsLoading(false);
+        setTimeout(() => setNotification(null), 5000);
+      }
     }
   };
 
@@ -702,6 +815,14 @@ export default function AdminProducts() {
     }
     
     syncProductsAndUpdate(true);
+  };
+
+  // دالة للتعامل مع تغييرات التخزين
+  const handleStorageChange = (event: any) => {
+    if (event.detail?.type === 'products') {
+      console.log('تم اكتشاف تغيير في بيانات المنتجات، جاري تحديث الواجهة...');
+      loadProductsData();
+    }
   };
 
   return (

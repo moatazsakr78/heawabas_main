@@ -458,12 +458,20 @@ export async function forceRefreshFromServer() {
   try {
     console.log('إجبار تحديث البيانات من السيرفر...');
     
+    // التحقق أولاً من وجود الجدول والصلاحيات
+    const tableExists = await createOrUpdateProductsTable();
+    if (!tableExists) {
+      console.log('لا يمكن الوصول إلى جدول المنتجات. سيتم العودة إلى البيانات المحلية.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('products')
       .select('*')
       .order('created_at', { ascending: false });
     
     if (error) {
+      console.error('خطأ في تحميل البيانات من السيرفر:', error);
       throw error;
     }
     
@@ -474,8 +482,26 @@ export async function forceRefreshFromServer() {
     
     console.log('تم تحميل البيانات بنجاح من السيرفر:', data.length);
     
-    // تحويل البيانات إلى نموذج التطبيق
-    const appModels = data.map(mapDatabaseToAppModel);
+    // تحويل البيانات إلى نموذج التطبيق مع التأكد من صحة القيم
+    const appModels = data.map(item => {
+      const model = mapDatabaseToAppModel(item);
+      
+      // التأكد من وجود جميع الحقول المطلوبة وبالأنواع الصحيحة
+      return {
+        id: model?.id?.toString() || '',
+        name: model?.name || '',
+        productCode: model?.productCode || '',
+        boxQuantity: typeof model?.boxQuantity === 'number' ? model.boxQuantity : 0,
+        piecePrice: typeof model?.piecePrice === 'number' ? model.piecePrice : 0,
+        packPrice: typeof model?.packPrice === 'number' ? model.packPrice : 0,
+        boxPrice: typeof model?.boxPrice === 'number' ? model.boxPrice : 0,
+        imageUrl: model?.imageUrl || '',
+        isNew: !!model?.isNew,
+        createdAt: model?.createdAt || new Date().toISOString(),
+        created_at: model?.createdAt || new Date().toISOString(),
+        updated_at: model?.updated_at || new Date().toISOString()
+      };
+    });
     
     // تحديث البيانات المحلية
     localStorage.setItem('products', JSON.stringify(appModels));
