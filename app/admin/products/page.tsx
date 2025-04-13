@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
-import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline } from '@/lib/supabase';
+import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable } from '@/lib/supabase';
 
 // تعريف نوع Category هنا بدلاً من استيراده
 interface Category {
@@ -26,6 +26,7 @@ interface Product {
   imageUrl: string;
   isNew: boolean;
   createdAt: string;
+  created_at?: string;
 }
 
 export default function AdminProducts() {
@@ -49,8 +50,7 @@ export default function AdminProducts() {
   const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
-    loadProductsData();
-    loadCategoriesData();
+    initializePage();
     
     // إضافة مستمع للاتصال بالإنترنت
     window.addEventListener('online', handleOnlineStatusChange);
@@ -61,6 +61,38 @@ export default function AdminProducts() {
       window.removeEventListener('offline', handleOnlineStatusChange);
     };
   }, []);
+
+  // دالة لتهيئة الصفحة وإعداد جداول قاعدة البيانات
+  const initializePage = async () => {
+    try {
+      setIsLoading(true);
+      
+      // التحقق من الاتصال بالإنترنت
+      if (isOnline()) {
+        console.log('جاري التحقق من هيكل قاعدة البيانات...');
+        try {
+          // إنشاء أو تحديث هيكل جدول المنتجات
+          await createOrUpdateProductsTable();
+          console.log('تم التحقق من هيكل قاعدة البيانات بنجاح');
+        } catch (error) {
+          console.error('خطأ أثناء تهيئة قاعدة البيانات:', error);
+          setNotification({
+            message: 'حدث خطأ أثناء التحقق من هيكل قاعدة البيانات. سيتم استخدام الوضع المحلي فقط.',
+            type: 'error'
+          });
+          setTimeout(() => setNotification(null), 5000);
+        }
+      }
+      
+      // تحميل البيانات
+      await loadProductsData();
+      await loadCategoriesData();
+    } catch (error) {
+      console.error('خطأ في تهيئة الصفحة:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // دالة للتعامل مع تغييرات الاتصال بالإنترنت
   const handleOnlineStatusChange = () => {
@@ -533,10 +565,12 @@ export default function AdminProducts() {
       }
       
       // الحفاظ على تاريخ الإنشاء الأصلي إذا كان موجودًا، وإلا تعيين تاريخ حالي
+      const currentDate = new Date().toISOString();
       const updatedProduct = {
         ...formData,
         id: currentProduct?.id || Date.now().toString(),
-        createdAt: currentProduct?.createdAt || new Date().toISOString(),
+        createdAt: currentProduct?.createdAt || currentDate,
+        created_at: currentProduct?.created_at || currentDate,
         boxQuantity: boxQuantity,
         piecePrice: piecePrice,
         packPrice: packPrice,

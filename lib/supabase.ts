@@ -48,6 +48,9 @@ if (typeof window !== 'undefined') {
 function mapDatabaseToAppModel(product: any) {
   if (!product) return null;
   
+  // تعامل مع كلا الاسمين لحقل التاريخ (created_at و createdAt)
+  const createdDate = product.created_at || product.createdAt || new Date().toISOString();
+  
   return {
     id: product.id,
     name: product.name,
@@ -58,7 +61,7 @@ function mapDatabaseToAppModel(product: any) {
     boxPrice: product.box_price,
     imageUrl: product.image_url,
     isNew: product.is_new,
-    createdAt: product.created_at || product.createdAt,
+    createdAt: createdDate,
     categoryId: product.category_id
   };
 }
@@ -68,6 +71,23 @@ function mapAppModelToDatabase(product: any) {
   if (!product) return null;
   
   console.log('تحويل المنتج:', product.id, 'createdAt:', product.createdAt);
+  
+  // إنشاء نسخة من التاريخ بالصيغة المناسبة
+  let formattedDate = product.createdAt;
+  
+  // التأكد من وجود تاريخ صالح وتحويله إلى سلسلة نصية ISO
+  if (!formattedDate) {
+    formattedDate = new Date().toISOString();
+  } else if (formattedDate instanceof Date) {
+    formattedDate = formattedDate.toISOString();
+  } else if (typeof formattedDate !== 'string') {
+    try {
+      formattedDate = new Date(formattedDate).toISOString();
+    } catch (e) {
+      console.warn('تاريخ غير صالح، استخدام التاريخ الحالي بدلاً منه');
+      formattedDate = new Date().toISOString();
+    }
+  }
   
   // إنشاء كائن النتيجة
   const result = {
@@ -80,7 +100,7 @@ function mapAppModelToDatabase(product: any) {
     box_price: product.boxPrice,
     image_url: product.imageUrl,
     is_new: product.isNew,
-    created_at: product.createdAt, // تحويل من createdAt إلى created_at
+    created_at: formattedDate,
     category_id: product.categoryId
   };
   
@@ -467,18 +487,27 @@ export async function syncProductsFromSupabase(force = false) {
         .order('created_at', { ascending: false });
       
       if (error) {
-        throw error;
-      }
-      
-      if (data && data.length > 0) {
+        // التحقق مما إذا كان الخطأ بسبب عدم وجود جدول المنتجات
+        if (error.code === 'PGRST116' || error.message.includes('does not exist')) {
+          console.log('جدول المنتجات غير موجود في قاعدة البيانات.');
+          
+          // محاولة إنشاء جدول المنتجات هنا غير ممكنة مباشرة
+          // سيتم التركيز على رفع البيانات المحلية لاحقاً
+        } else {
+          throw error;
+        }
+      } else if (data && data.length > 0) {
         console.log('تم العثور على البيانات في السيرفر:', data.length);
         // تحويل البيانات إلى نموذج التطبيق
         serverData = data.map(mapDatabaseToAppModel);
       } else {
         console.log('لم يتم العثور على بيانات في السيرفر');
       }
-    } catch (error) {
-      console.error('خطأ في جلب البيانات من السيرفر:', error);
+    } catch (fetchError: any) {
+      console.error('خطأ في جلب البيانات من السيرفر:', fetchError);
+      if (fetchError.message && (fetchError.message.includes('createdAt') || fetchError.message.includes('created_at'))) {
+        console.warn('خطأ في هيكل الجدول: مشكلة في حقل تاريخ الإنشاء. تعديل البيانات للتوافق...');
+      }
     }
     
     // تحميل البيانات المحلية
@@ -530,11 +559,25 @@ export async function syncProductsFromSupabase(force = false) {
       console.log('لم يتم العثور على بيانات في السيرفر. رفع البيانات المحلية...');
       
       try {
+        // تحضير البيانات للرفع - تأكد من وجود حقل created_at و createdAt
+        const preparedData = localData.map((product: any) => {
+          if (!product.created_at && product.createdAt) {
+            product.created_at = product.createdAt;
+          } else if (!product.createdAt && product.created_at) {
+            product.createdAt = product.created_at;
+          } else if (!product.created_at && !product.createdAt) {
+            const date = new Date().toISOString();
+            product.created_at = date;
+            product.createdAt = date;
+          }
+          return product;
+        });
+
         // حذف أي بيانات موجودة في السيرفر
         await supabase.from('products').delete().not('id', 'is', null);
         
         // تنظيف البيانات
-        const uniqueProducts = localData.filter((p: any, index: number, self: any[]) => 
+        const uniqueProducts = preparedData.filter((p: any, index: number, self: any[]) => 
           index === self.findIndex((t: any) => t.id === p.id)
         );
         
@@ -556,6 +599,12 @@ export async function syncProductsFromSupabase(force = false) {
           .select();
         
         if (error) {
+          // إذا كان الخطأ بسبب عدم وجود الجدول أو مشكلة في هيكله
+          if (error.code === 'PGRST116' || error.message.includes('does not exist') || error.message.includes('column')) {
+            console.error('خطأ في هيكل الجدول، يرجى التحقق من إعدادات قاعدة البيانات:', error);
+            console.log('سيتم استخدام البيانات المحلية فقط حتى يتم إصلاح مشكلة قاعدة البيانات');
+            return uniqueProducts; // استخدام البيانات المحلية
+          }
           throw error;
         }
         
@@ -571,7 +620,8 @@ export async function syncProductsFromSupabase(force = false) {
         return appModels;
       } catch (error) {
         console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', error);
-        throw error;
+        // في حالة الفشل، استخدم البيانات المحلية على الأقل
+        return localData;
       }
     }
     
@@ -650,4 +700,101 @@ export async function forceRefreshFromServer() {
 // وظيفة للتحقق من الاتصال بالإنترنت
 export function isOnline(): boolean {
   return typeof navigator !== 'undefined' && navigator.onLine;
+}
+
+// دالة لإنشاء أو تحديث جدول المنتجات
+export async function createOrUpdateProductsTable() {
+  try {
+    if (!isOnline()) {
+      console.error('لا يوجد اتصال بالإنترنت');
+      throw new Error('لا يوجد اتصال بالإنترنت');
+    }
+
+    console.log('جاري التحقق من وجود جدول المنتجات وهيكله...');
+    
+    // محاولة الوصول إلى الجدول للتحقق من وجوده
+    const { data: tableExists, error: tableError } = await supabase
+      .from('products')
+      .select('id')
+      .limit(1);
+    
+    if (tableError && tableError.code === 'PGRST116') {
+      // الجدول غير موجود، إنشاءه
+      console.log('جدول المنتجات غير موجود. جاري إنشاء الجدول...');
+      
+      // استعلام SQL لإنشاء الجدول
+      const { error: createError } = await supabase.rpc('create_products_table');
+      
+      if (createError) {
+        console.error('فشل في استدعاء دالة إنشاء الجدول:', createError);
+        
+        // محاولة إنشاء الجدول مباشرة
+        const { error: sqlError } = await supabase.rpc('run_sql', { 
+          sql: `
+            CREATE TABLE IF NOT EXISTS products (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              product_code TEXT,
+              box_quantity INTEGER,
+              piece_price NUMERIC,
+              pack_price NUMERIC,
+              box_price NUMERIC,
+              image_url TEXT,
+              is_new BOOLEAN DEFAULT FALSE,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              category_id TEXT
+            );
+          `
+        });
+        
+        if (sqlError) {
+          console.error('فشل في إنشاء جدول المنتجات مباشرة:', sqlError);
+          throw new Error('فشل في إنشاء جدول المنتجات');
+        }
+        
+        console.log('تم إنشاء جدول المنتجات بنجاح');
+      } else {
+        console.log('تم إنشاء جدول المنتجات بنجاح');
+      }
+    } else {
+      // الجدول موجود، تحقق من وجود العمود created_at
+      console.log('جدول المنتجات موجود، جاري التحقق من هيكله...');
+      
+      // استعلام للتحقق من وجود العمود created_at
+      const { error: columnError } = await supabase.rpc('run_sql', { 
+        sql: `
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'products' 
+          AND column_name = 'created_at';
+        `
+      });
+      
+      if (columnError) {
+        console.error('فشل في التحقق من وجود العمود created_at:', columnError);
+        
+        // محاولة إضافة العمود
+        const { error: alterError } = await supabase.rpc('run_sql', { 
+          sql: `
+            ALTER TABLE products 
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+          `
+        });
+        
+        if (alterError) {
+          console.error('فشل في إضافة العمود created_at:', alterError);
+          throw new Error('فشل في تحديث هيكل جدول المنتجات');
+        }
+        
+        console.log('تم إضافة العمود created_at بنجاح');
+      } else {
+        console.log('هيكل جدول المنتجات صحيح');
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('خطأ في createOrUpdateProductsTable:', error);
+    throw error;
+  }
 } 
