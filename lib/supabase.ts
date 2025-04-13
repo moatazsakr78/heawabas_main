@@ -525,100 +525,36 @@ export function isOnline(): boolean {
   return typeof navigator !== 'undefined' && navigator.onLine;
 }
 
-// دالة لإنشاء أو تحديث جدول المنتجات
+// دالة للتحقق من وجود جدول المنتجات وإنشائه أو تحديثه إذا لزم الأمر
 export async function createOrUpdateProductsTable() {
   try {
-    if (!isOnline()) {
-      console.error('لا يوجد اتصال بالإنترنت');
-      throw new Error('لا يوجد اتصال بالإنترنت');
-    }
-
-    console.log('جاري التحقق من وجود جدول المنتجات وهيكله...');
+    console.log('التحقق من وجود جدول المنتجات...');
     
-    // محاولة الوصول إلى الجدول للتحقق من وجوده
-    const { data: tableExists, error: tableError } = await supabase
+    // بدلاً من التحقق من وجود الجدول باستخدام استعلام SQL،
+    // سنحاول قراءة البيانات من الجدول لنرى ما إذا كان موجوداً
+    const { data, error } = await supabase
       .from('products')
       .select('id')
       .limit(1);
     
-    if (tableError && tableError.code === 'PGRST116') {
-      // الجدول غير موجود، إنشاءه
-      console.log('جدول المنتجات غير موجود. جاري إنشاء الجدول...');
+    if (error) {
+      console.log('خطأ في الوصول إلى جدول المنتجات، قد يكون الجدول غير موجود أو هناك مشكلة في الصلاحيات');
+      console.log('محاولة إنشاء الجدول سيتم تجاهلها، سنستمر بالعمل مع التخزين المحلي فقط');
       
-      // استعلام SQL لإنشاء الجدول
-      const { error: createError } = await supabase.rpc('create_products_table');
+      // هنا نفترض أن مشكلة الوصول للجدول هي مشكلة صلاحيات أو أن الجدول غير موجود
+      // في بيئة Supabase، إنشاء الجداول يجب أن يتم من لوحة التحكم، وليس برمجياً في معظم الحالات
+      // لذلك سنكتفي بتسجيل الخطأ والاستمرار بالعمل بالتخزين المحلي
       
-      if (createError) {
-        console.error('فشل في استدعاء دالة إنشاء الجدول:', createError);
-        
-        // محاولة إنشاء الجدول مباشرة
-        const { error: sqlError } = await supabase.rpc('run_sql', { 
-          sql: `
-            CREATE TABLE IF NOT EXISTS products (
-              id TEXT PRIMARY KEY,
-              name TEXT NOT NULL,
-              product_code TEXT,
-              box_quantity INTEGER,
-              piece_price NUMERIC,
-              pack_price NUMERIC,
-              box_price NUMERIC,
-              image_url TEXT,
-              is_new BOOLEAN DEFAULT FALSE,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              category_id TEXT
-            );
-          `
-        });
-        
-        if (sqlError) {
-          console.error('فشل في إنشاء جدول المنتجات مباشرة:', sqlError);
-          throw new Error('فشل في إنشاء جدول المنتجات');
-        }
-        
-        console.log('تم إنشاء جدول المنتجات بنجاح');
-      } else {
-        console.log('تم إنشاء جدول المنتجات بنجاح');
-      }
-    } else {
-      // الجدول موجود، تحقق من وجود العمود created_at
-      console.log('جدول المنتجات موجود، جاري التحقق من هيكله...');
-      
-      // استعلام للتحقق من وجود العمود created_at
-      const { error: columnError } = await supabase.rpc('run_sql', { 
-        sql: `
-          SELECT column_name 
-          FROM information_schema.columns 
-          WHERE table_name = 'products' 
-          AND column_name = 'created_at';
-        `
-      });
-      
-      if (columnError) {
-        console.error('فشل في التحقق من وجود العمود created_at:', columnError);
-        
-        // محاولة إضافة العمود
-        const { error: alterError } = await supabase.rpc('run_sql', { 
-          sql: `
-            ALTER TABLE products 
-            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-          `
-        });
-        
-        if (alterError) {
-          console.error('فشل في إضافة العمود created_at:', alterError);
-          throw new Error('فشل في تحديث هيكل جدول المنتجات');
-        }
-        
-        console.log('تم إضافة العمود created_at بنجاح');
-      } else {
-        console.log('هيكل جدول المنتجات صحيح');
-      }
+      return false;
     }
     
+    // إذا وصلنا إلى هنا، فالجدول موجود بالفعل
+    console.log('جدول المنتجات موجود ويمكن الوصول إليه');
     return true;
   } catch (error) {
     console.error('خطأ في createOrUpdateProductsTable:', error);
-    throw error;
+    // نعيد false لنشير إلى أننا سنعتمد على التخزين المحلي فقط
+    return false;
   }
 }
 
@@ -626,12 +562,51 @@ export async function createOrUpdateProductsTable() {
 export async function resetAndSyncProducts(products: any[]) {
   if (!isOnline()) {
     console.error('لا يوجد اتصال بالإنترنت. لا يمكن إعادة ضبط المنتجات.');
-    throw new Error('لا يوجد اتصال بالإنترنت');
+    return {
+      success: false,
+      message: 'لا يوجد اتصال بالإنترنت. تم الحفظ محلياً فقط.'
+    };
   }
 
   console.log('بدء إعادة ضبط ومزامنة المنتجات...');
   
   try {
+    // التحقق من وجود الجدول والصلاحيات أولاً
+    const tableExists = await createOrUpdateProductsTable();
+    
+    if (!tableExists) {
+      console.log('لا يمكن الوصول إلى جدول المنتجات في Supabase. سيتم الحفظ محلياً فقط.');
+      
+      // حفظ البيانات محلياً
+      if (products && products.length > 0) {
+        console.log('حفظ البيانات محلياً فقط...');
+        localStorage.setItem('products', JSON.stringify(products));
+        
+        // تحديث الطابع الزمني للمزامنة
+        lastSyncTimestamp = Date.now();
+        localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+        
+        // التخزين في IndexedDB
+        try {
+          await saveData('products', products);
+          console.log('تم حفظ البيانات بنجاح في التخزين المحلي الدائم');
+        } catch (dbError) {
+          console.error('فشل في حفظ البيانات في التخزين المحلي الدائم:', dbError);
+        }
+        
+        // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
+        const event = new CustomEvent('customStorageChange', {
+          detail: { type: 'products', source: 'local' }
+        });
+        window.dispatchEvent(event);
+      }
+      
+      return {
+        success: false,
+        message: 'تم الحفظ محلياً فقط. لا يمكن الوصول إلى قاعدة البيانات في Supabase.'
+      };
+    }
+    
     // 1. حذف جميع المنتجات الموجودة
     console.log('حذف جميع المنتجات من قاعدة البيانات...');
     const { error: deleteError } = await supabase
@@ -641,91 +616,29 @@ export async function resetAndSyncProducts(products: any[]) {
     
     if (deleteError) {
       console.error('فشل في حذف المنتجات:', deleteError);
-      // استمر بالعملية حتى لو فشل الحذف
+      
+      // إذا فشل الحذف بسبب مشكلة RLS، نحفظ البيانات محلياً فقط
+      if (deleteError.message.includes('row-level security') || deleteError.message.includes('permission')) {
+        // حفظ البيانات محلياً
+        localStorage.setItem('products', JSON.stringify(products));
+        await saveData('products', products);
+        
+        return {
+          success: false,
+          message: 'تم الحفظ محلياً فقط. قيود أمان Supabase تمنع المزامنة.'
+        };
+      }
     } else {
       console.log('تم حذف جميع المنتجات بنجاح');
     }
     
-    // إضافة تأخير بسيط للتأكد من اكتمال عملية الحذف
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // 2. إضافة منتج اختبار بسيط للتحقق من هيكل الجدول
-    console.log('إضافة منتج اختبار للتحقق من هيكل الجدول...');
-    const testProduct = {
-      id: 'test-' + Date.now(),
-      name: 'منتج اختبار',
-      product_code: 'TEST001',
-      box_quantity: 10,
-      piece_price: 1.0,
-      pack_price: 5.0,
-      box_price: 10.0,
-      image_url: '',
-      is_new: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      category_id: null
-    };
-    
-    const { data: testData, error: testError } = await supabase
-      .from('products')
-      .insert(testProduct)
-      .select();
-    
-    if (testError) {
-      console.error('فشل في إضافة منتج الاختبار:', testError);
-      
-      // التحقق مما إذا كان الخطأ متعلق بسياسة RLS
-      if (testError.message.includes('row-level security policy')) {
-        console.log('خطأ في سياسة أمان مستوى الصف (RLS)، محاولة استخدام إعدادات أكثر تساهلاً...');
-        
-        // حفظ البيانات محلياً بدلاً من إرسالها إلى الخادم
-        if (products && products.length > 0) {
-          console.log('حفظ البيانات محلياً فقط...');
-          localStorage.setItem('products', JSON.stringify(products));
-          
-          // تحديث الطابع الزمني للمزامنة
-          lastSyncTimestamp = Date.now();
-          localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-          
-          // التخزين في IndexedDB
-          try {
-            await saveData('products', products);
-            console.log('تم حفظ البيانات بنجاح في التخزين المحلي الدائم');
-          } catch (dbError) {
-            console.error('فشل في حفظ البيانات في التخزين المحلي الدائم:', dbError);
-          }
-          
-          // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
-          const event = new Event('customStorageChange');
-          window.dispatchEvent(event);
-          
-          return products;
-        }
-        return [];
-      }
-      
-      throw new Error('فشل التحقق من هيكل الجدول: ' + testError.message);
-    }
-    
-    console.log('تم إضافة منتج الاختبار بنجاح. هيكل الجدول سليم.');
-    
-    // 3. حذف منتج الاختبار
-    const { error: removeTestError } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', testProduct.id);
-    
-    if (removeTestError) {
-      console.warn('تحذير: فشل في حذف منتج الاختبار:', removeTestError);
-      // لا نريد إيقاف العملية بسبب هذا الخطأ
-    }
-    
-    // 4. تحويل البيانات وإضافتها
-    console.log('إضافة المنتجات الفعلية...');
-    
+    // 2. إضافة المنتجات الجديدة
     if (!products || products.length === 0) {
       console.log('لا توجد منتجات لإضافتها');
-      return [];
+      return {
+        success: true,
+        message: 'تمت المزامنة بنجاح. لا توجد منتجات لإضافتها.'
+      };
     }
     
     // تحضير البيانات للإدراج
@@ -743,77 +656,77 @@ export async function resetAndSyncProducts(products: any[]) {
         box_price: product.boxPrice || 0,
         image_url: product.imageUrl || '',
         is_new: product.isNew || false,
-        created_at: product.createdAt || product.created_at || now,
-        updated_at: now,
+        created_at: product.createdAt || now,
         category_id: product.categoryId || null
       };
     });
     
-    // رفع المنتجات إلى Supabase
-    const { data, error } = await supabase
+    // إضافة المنتجات
+    const { data: addedProducts, error: addError } = await supabase
       .from('products')
-      .upsert(dbProducts, { onConflict: 'id' })
+      .insert(dbProducts)
       .select();
+    
+    if (addError) {
+      console.error('فشل في إضافة المنتجات:', addError);
       
-    // التعامل مع الخطأ إن وجد
-    if (error) {
-      console.error('خطأ في حفظ المنتجات:', error);
+      // حفظ البيانات محلياً على أي حال
+      localStorage.setItem('products', JSON.stringify(products));
+      await saveData('products', products);
       
-      // التحقق مما إذا كان الخطأ متعلق بسياسة RLS
-      if (error.message.includes('row-level security policy')) {
-        console.log('خطأ في سياسة أمان مستوى الصف (RLS)، تفعيل الوضع المحلي فقط...');
-        
-        const userFriendlyError = {
-          message: 'تم حفظ البيانات محلياً بنجاح. لكن هناك مشكلة في إعدادات سياسة أمان قاعدة البيانات (RLS) تمنع المزامنة مع السيرفر.',
-          userFriendlyMessage: 'تم حفظ البيانات محلياً فقط. لتفعيل المزامنة مع السيرفر، يرجى تعديل إعدادات الـ RLS في Supabase من خلال لوحة التحكم.',
-          originalError: error,
-        };
-        
-        // حفظ البيانات محلياً على أي حال
-        if (products && products.length > 0) {
-          localStorage.setItem('products', JSON.stringify(products));
-          
-          // تحديث الطابع الزمني للمزامنة
-          lastSyncTimestamp = Date.now();
-          localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-          
-          // التخزين في IndexedDB
-          try {
-            await saveData('products', products);
-            console.log('تم حفظ البيانات بنجاح في التخزين المحلي الدائم، رغم فشل المزامنة مع السيرفر');
-          } catch (dbError) {
-            console.error('فشل في حفظ البيانات في التخزين المحلي الدائم:', dbError);
-          }
-          
-          // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
-          const event = new Event('customStorageChange');
-          window.dispatchEvent(event);
-          
-          return { 
-            success: true, 
-            message: 'تم حفظ البيانات محلياً فقط، بدون مزامنة مع السيرفر بسبب سياسة أمان RLS',
-            userFriendlyMessage: userFriendlyError.userFriendlyMessage
-          };
-        }
-      }
-      
-      // إعادة طرح الخطأ لمعالجته في المستدعي مع رسالة أكثر وضوحًا
-      const enhancedError = new Error('فشلت مزامنة المنتجات: تحقق من الاتصال بالإنترنت وهيكل البيانات وإعدادات Supabase.') as EnhancedError;
-      enhancedError.userFriendlyMessage = 'تم حفظ البيانات محلياً فقط، ويمكن استخدام زر "إصلاح فوري لمشكلة المزامنة" لحل المشكلة.';
-      throw enhancedError;
+      return {
+        success: false,
+        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${addError.message}`
+      };
     }
-
-    console.log('تم حفظ المنتجات بنجاح في Supabase:', data.length);
     
-    // تحديث الطابع الزمني للمزامنة
-    lastSyncTimestamp = Date.now();
-    localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+    console.log(`تم إضافة ${dbProducts.length} منتج بنجاح`);
     
-    // تحويل البيانات المسترجعة إلى نموذج التطبيق
-    const appModels = data.map(mapDatabaseToAppModel);
-    return appModels;
-  } catch (error) {
+    // تحديث التخزين المحلي بالمنتجات المضافة من الخادم
+    if (addedProducts && addedProducts.length > 0) {
+      // تحويل البيانات إلى نموذج التطبيق
+      const appProducts = addedProducts.map(mapDatabaseToAppModel);
+      
+      // تحديث التخزين المحلي
+      localStorage.setItem('products', JSON.stringify(appProducts));
+      await saveData('products', appProducts);
+      
+      // تحديث الطابع الزمني للمزامنة
+      lastSyncTimestamp = Date.now();
+      localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+      
+      // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
+      const event = new CustomEvent('customStorageChange', {
+        detail: { type: 'products', source: 'server' }
+      });
+      window.dispatchEvent(event);
+      
+      return {
+        success: true,
+        message: `تمت المزامنة بنجاح. تم تحديث ${appProducts.length} منتج.`
+      };
+    }
+    
+    return {
+      success: true,
+      message: 'تمت المزامنة بنجاح.'
+    };
+  } catch (error: any) {
     console.error('خطأ في resetAndSyncProducts:', error);
-    throw error;
+    
+    // حفظ البيانات محلياً على أي حال
+    if (products && products.length > 0) {
+      localStorage.setItem('products', JSON.stringify(products));
+      try {
+        await saveData('products', products);
+      } catch (e) {
+        console.error('فشل في حفظ البيانات في التخزين المحلي:', e);
+      }
+    }
+    
+    return {
+      success: false,
+      message: `تم الحفظ محلياً فقط. خطأ غير متوقع: ${error.message || 'خطأ غير معروف'}`
+    };
   }
 } 

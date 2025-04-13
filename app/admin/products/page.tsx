@@ -628,7 +628,9 @@ export default function AdminProducts() {
             
             try {
               const result = await resetAndSyncProducts(products);
-              if (result) {
+              
+              if (Array.isArray(result)) {
+                // للتوافق مع الكود القديم
                 setProducts(result as unknown as Product[]);
                 localStorage.setItem('products', JSON.stringify(result));
                 
@@ -636,8 +638,22 @@ export default function AdminProducts() {
                   message: "تم إصلاح مشكلة المزامنة بنجاح",
                   type: "success"
                 });
-                setTimeout(() => setNotification(null), 5000);
+              } else if (result && typeof result === 'object') {
+                // الطريقة الجديدة: كائن يحتوي على حالة النجاح والرسالة
+                if (result.success) {
+                  setNotification({
+                    message: result.message,
+                    type: "success"
+                  });
+                } else {
+                  setNotification({
+                    message: result.message,
+                    type: "warning"
+                  });
+                }
               }
+              
+              setTimeout(() => setNotification(null), 5000);
             } catch (error: any) {
               console.error("خطأ أثناء عملية الإصلاح:", error);
               setNotification({
@@ -698,7 +714,9 @@ export default function AdminProducts() {
               
               try {
                 const result = await resetAndSyncProducts(products);
-                if (result) {
+                
+                if (Array.isArray(result)) {
+                  // للتوافق مع الكود القديم
                   setProducts(result as unknown as Product[]);
                   localStorage.setItem('products', JSON.stringify(result));
                   
@@ -706,8 +724,22 @@ export default function AdminProducts() {
                     message: "تم إصلاح مشكلة المزامنة بنجاح",
                     type: "success"
                   });
-                  setTimeout(() => setNotification(null), 5000);
+                } else if (result && typeof result === 'object') {
+                  // الطريقة الجديدة: كائن يحتوي على حالة النجاح والرسالة
+                  if (result.success) {
+                    setNotification({
+                      message: result.message,
+                      type: "success"
+                    });
+                  } else {
+                    setNotification({
+                      message: result.message,
+                      type: "warning"
+                    });
+                  }
                 }
+                
+                setTimeout(() => setNotification(null), 5000);
               } catch (error: any) {
                 console.error("خطأ أثناء عملية الإصلاح:", error);
                 setNotification({
