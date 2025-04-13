@@ -4,8 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
-import { Category } from '@/lib/data';
 import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline } from '@/lib/supabase';
+
+// تعريف نوع Category هنا بدلاً من استيراده
+interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  image?: string;
+  description?: string;
+}
 
 interface Product {
   id: string;
@@ -343,19 +351,25 @@ export default function AdminProducts() {
     
     // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
     let syncSuccess = false;
+    let errorMessage = '';
+    
     if (isOnline()) {
       try {
         console.log('جاري مزامنة المنتجات مع السيرفر...');
         await saveProductsToSupabase(newProducts);
         syncSuccess = true;
         console.log('تمت مزامنة المنتجات مع السيرفر بنجاح');
-      } catch (error) {
+      } catch (error: any) {
         console.error('خطأ في الحفظ إلى السيرفر:', error);
+        
+        // استخدام الرسالة الودية للمستخدم إذا كانت متاحة
+        errorMessage = error.userFriendlyMessage || error.message || 'خطأ غير معروف في المزامنة';
+        
         setNotification({
-          message: 'تم حفظ البيانات محليًا فقط. فشلت المزامنة مع السيرفر.',
+          message: `تم حفظ البيانات محليًا فقط. فشلت المزامنة مع السيرفر: ${errorMessage}`,
           type: 'error'
         });
-        setTimeout(() => setNotification(null), 5000);
+        setTimeout(() => setNotification(null), 8000);
       }
     }
     
@@ -368,12 +382,15 @@ export default function AdminProducts() {
         }));
       }
       
-      setNotification({
-        message: isOnline() && syncSuccess 
-          ? 'تم حفظ التغييرات بنجاح ومزامنتها مع السيرفر. التغييرات ستظهر في جميع الأجهزة.' 
-          : 'تم حفظ التغييرات محليًا فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
-        type: 'success'
-      });
+      // عرض إشعار نجاح فقط إذا لم يكن هناك خطأ بالفعل
+      if (!errorMessage) {
+        setNotification({
+          message: isOnline() && syncSuccess 
+            ? 'تم حفظ التغييرات بنجاح ومزامنتها مع السيرفر. التغييرات ستظهر في جميع الأجهزة.' 
+            : 'تم حفظ التغييرات محليًا فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
+          type: 'success'
+        });
+      }
       
     } catch (error) {
       console.error('خطأ في إرسال حدث التخزين:', error);
@@ -383,7 +400,10 @@ export default function AdminProducts() {
       });
     } finally {
       setIsLoading(false);
-      setTimeout(() => setNotification(null), 5000);
+      // إعطاء وقت أطول لعرض رسائل الخطأ
+      if (!errorMessage) {
+        setTimeout(() => setNotification(null), 5000);
+      }
     }
   };
 
@@ -487,15 +507,40 @@ export default function AdminProducts() {
     setIsLoading(true);
     
     try {
+      // التحقق من صحة الإدخالات
+      if (!formData.name || formData.name.trim() === '') {
+        setNotification({
+          message: 'خطأ: اسم المنتج مطلوب',
+          type: 'error'
+        });
+        setIsLoading(false);
+        return;
+      }
+      
+      // التحقق من صحة الأرقام
+      const boxQuantity = parseInt(formData.boxQuantity.toString()) || 0;
+      const piecePrice = parseFloat(formData.piecePrice.toString()) || 0;
+      const packPrice = parseFloat(formData.packPrice.toString()) || 0;
+      const boxPrice = parseFloat(formData.boxPrice.toString()) || 0;
+      
+      if (boxQuantity < 0 || piecePrice < 0 || packPrice < 0 || boxPrice < 0) {
+        setNotification({
+          message: 'خطأ: لا يمكن أن تكون الأسعار أو الكميات بقيم سالبة',
+          type: 'error'
+        });
+        setIsLoading(false);
+        return;
+      }
+      
       // الحفاظ على تاريخ الإنشاء الأصلي إذا كان موجودًا، وإلا تعيين تاريخ حالي
       const updatedProduct = {
         ...formData,
         id: currentProduct?.id || Date.now().toString(),
         createdAt: currentProduct?.createdAt || new Date().toISOString(),
-        boxQuantity: parseInt(formData.boxQuantity.toString()) || 0,
-        piecePrice: parseFloat(formData.piecePrice.toString()) || 0,
-        packPrice: parseFloat(formData.packPrice.toString()) || 0,
-        boxPrice: parseFloat(formData.boxPrice.toString()) || 0,
+        boxQuantity: boxQuantity,
+        piecePrice: piecePrice,
+        packPrice: packPrice,
+        boxPrice: boxPrice,
       };
 
       if (currentProduct) {
@@ -512,13 +557,14 @@ export default function AdminProducts() {
       }
       setIsModalOpen(false);
       setIsLoading(false);
-    } catch (error) {
-      console.error('Error updating product:', error);
+    } catch (error: any) {
+      console.error('خطأ في تحديث المنتج:', error);
       setNotification({
-        message: 'حدثت مشكلة أثناء تحديث المنتج',
+        message: `حدثت مشكلة أثناء ${currentProduct ? 'تحديث' : 'إضافة'} المنتج: ${error.message || 'خطأ غير معروف'}`,
         type: 'error'
       });
       setIsLoading(false);
+      setTimeout(() => setNotification(null), 8000);
     }
   };
 
