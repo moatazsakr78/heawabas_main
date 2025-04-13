@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw } from 'react-icons/fi';
+import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw, FiTool } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
-import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable } from '@/lib/supabase';
+import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable, resetAndSyncProducts } from '@/lib/supabase';
 
 // تعريف نوع Category هنا بدلاً من استيراده
 interface Category {
@@ -27,6 +27,7 @@ interface Product {
   isNew: boolean;
   createdAt: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export default function AdminProducts() {
@@ -571,6 +572,7 @@ export default function AdminProducts() {
         id: currentProduct?.id || Date.now().toString(),
         createdAt: currentProduct?.createdAt || currentDate,
         created_at: currentProduct?.created_at || currentDate,
+        updated_at: currentDate,
         boxQuantity: boxQuantity,
         piecePrice: piecePrice,
         packPrice: packPrice,
@@ -616,6 +618,51 @@ export default function AdminProducts() {
     syncProductsAndUpdate(true);
   };
 
+  // دالة لإصلاح مشاكل المزامنة والجداول
+  const handleFixSync = async () => {
+    if (!window.confirm('سيتم حذف جميع المنتجات من قاعدة البيانات وإعادة رفعها. هل أنت متأكد؟')) {
+      return;
+    }
+    
+    setIsLoading(true);
+    setNotification({
+      message: 'جاري إصلاح مشاكل المزامنة...',
+      type: 'info'
+    });
+    
+    try {
+      // استخدام الدالة الجديدة لإعادة ضبط ورفع المنتجات
+      const result = await resetAndSyncProducts(products);
+      
+      if (result && result.length > 0) {
+        // استخدام الإجبار النوعي البسيط
+        setProducts(result as unknown as Product[]);
+        setNotification({
+          message: `تم إصلاح المزامنة بنجاح. تم رفع ${result.length} منتج.`,
+          type: 'success'
+        });
+        
+        // تحديث التخزين المحلي أيضاً
+        localStorage.setItem('products', JSON.stringify(result));
+        await saveData('products', result);
+      } else {
+        setNotification({
+          message: 'تم إصلاح هيكل الجدول، لكن لا توجد منتجات للرفع.',
+          type: 'warning'
+        });
+      }
+    } catch (error: any) {
+      console.error('فشل في إصلاح المزامنة:', error);
+      setNotification({
+        message: `حدث خطأ أثناء محاولة الإصلاح: ${error.message || 'خطأ غير معروف'}`,
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setNotification(null), 8000);
+    }
+  };
+
   return (
     <div>
       {notification && (
@@ -658,6 +705,14 @@ export default function AdminProducts() {
           >
             <FiPlus className="ml-2" />
             إضافة منتج جديد
+          </button>
+          <button
+            onClick={handleFixSync}
+            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
+            disabled={isLoading || !isOnline()}
+          >
+            <FiTool className="ml-2" />
+            إصلاح مشكلات المزامنة
           </button>
         </div>
       </div>

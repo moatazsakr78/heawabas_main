@@ -62,6 +62,7 @@ function mapDatabaseToAppModel(product: any) {
     imageUrl: product.image_url,
     isNew: product.is_new,
     createdAt: createdDate,
+    updated_at: product.updated_at, // إضافة حقل تاريخ التحديث
     categoryId: product.category_id
   };
 }
@@ -89,6 +90,9 @@ function mapAppModelToDatabase(product: any) {
     }
   }
   
+  // الوقت الحالي للحقل updated_at
+  const now = new Date().toISOString();
+  
   // إنشاء كائن النتيجة
   const result = {
     id: product.id,
@@ -101,11 +105,12 @@ function mapAppModelToDatabase(product: any) {
     image_url: product.imageUrl,
     is_new: product.isNew,
     created_at: formattedDate,
+    updated_at: now, // إضافة حقل تاريخ التحديث
     category_id: product.categoryId
   };
   
   // طباعة الناتج للتحقق
-  console.log('بعد التحويل:', result.id, 'created_at:', result.created_at);
+  console.log('بعد التحويل:', result.id, 'created_at:', result.created_at, 'updated_at:', result.updated_at);
   
   return result;
 }
@@ -795,6 +800,128 @@ export async function createOrUpdateProductsTable() {
     return true;
   } catch (error) {
     console.error('خطأ في createOrUpdateProductsTable:', error);
+    throw error;
+  }
+}
+
+// دالة لإعادة ضبط جدول المنتجات وحذف جميع المنتجات ثم إعادة رفعها
+export async function resetAndSyncProducts(products: any[]) {
+  if (!isOnline()) {
+    console.error('لا يوجد اتصال بالإنترنت. لا يمكن إعادة ضبط المنتجات.');
+    throw new Error('لا يوجد اتصال بالإنترنت');
+  }
+
+  console.log('بدء إعادة ضبط ومزامنة المنتجات...');
+  
+  try {
+    // 1. حذف جميع المنتجات الموجودة
+    console.log('حذف جميع المنتجات من قاعدة البيانات...');
+    const { error: deleteError } = await supabase
+      .from('products')
+      .delete()
+      .neq('id', '0'); // لحذف جميع الصفوف (حيث المعرف لا يساوي 0)
+    
+    if (deleteError) {
+      console.error('فشل في حذف المنتجات:', deleteError);
+      // استمر بالعملية حتى لو فشل الحذف
+    } else {
+      console.log('تم حذف جميع المنتجات بنجاح');
+    }
+    
+    // إضافة تأخير بسيط للتأكد من اكتمال عملية الحذف
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // 2. إضافة منتج اختبار بسيط للتحقق من هيكل الجدول
+    console.log('إضافة منتج اختبار للتحقق من هيكل الجدول...');
+    const testProduct = {
+      id: 'test-' + Date.now(),
+      name: 'منتج اختبار',
+      product_code: 'TEST001',
+      box_quantity: 10,
+      piece_price: 1.0,
+      pack_price: 5.0,
+      box_price: 10.0,
+      image_url: '',
+      is_new: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      category_id: null
+    };
+    
+    const { data: testData, error: testError } = await supabase
+      .from('products')
+      .insert(testProduct)
+      .select();
+    
+    if (testError) {
+      console.error('فشل في إضافة منتج الاختبار:', testError);
+      throw new Error('فشل التحقق من هيكل الجدول: ' + testError.message);
+    }
+    
+    console.log('تم إضافة منتج الاختبار بنجاح. هيكل الجدول سليم.');
+    
+    // 3. حذف منتج الاختبار
+    const { error: removeTestError } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', testProduct.id);
+    
+    if (removeTestError) {
+      console.warn('تحذير: فشل في حذف منتج الاختبار:', removeTestError);
+      // لا نريد إيقاف العملية بسبب هذا الخطأ
+    }
+    
+    // 4. تحويل البيانات وإضافتها
+    console.log('إضافة المنتجات الفعلية...');
+    
+    if (!products || products.length === 0) {
+      console.log('لا توجد منتجات لإضافتها');
+      return [];
+    }
+    
+    // تحضير البيانات للإدراج
+    const dbProducts = products.map(product => {
+      // تأكد من وجود كل الحقول المطلوبة
+      const now = new Date().toISOString();
+      
+      return {
+        id: product.id || ('new-' + Date.now() + Math.random().toString(36).substring(2, 9)),
+        name: product.name || 'منتج بدون اسم',
+        product_code: product.productCode || '',
+        box_quantity: product.boxQuantity || 0,
+        piece_price: product.piecePrice || 0,
+        pack_price: product.packPrice || 0,
+        box_price: product.boxPrice || 0,
+        image_url: product.imageUrl || '',
+        is_new: product.isNew || false,
+        created_at: product.createdAt || product.created_at || now,
+        updated_at: now,
+        category_id: product.categoryId || null
+      };
+    });
+    
+    // إضافة المنتجات
+    const { data, error } = await supabase
+      .from('products')
+      .insert(dbProducts)
+      .select();
+    
+    if (error) {
+      console.error('فشل في إضافة المنتجات:', error);
+      throw error;
+    }
+    
+    console.log('تم إضافة المنتجات بنجاح:', data.length);
+    
+    // تحديث الطابع الزمني للمزامنة
+    lastSyncTimestamp = Date.now();
+    localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+    
+    // تحويل البيانات المسترجعة إلى نموذج التطبيق
+    const appModels = data.map(mapDatabaseToAppModel);
+    return appModels;
+  } catch (error) {
+    console.error('خطأ في resetAndSyncProducts:', error);
     throw error;
   }
 } 
