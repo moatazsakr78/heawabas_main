@@ -284,90 +284,68 @@ export default function AdminProducts() {
     }
   };
 
-  // وظيفة مزامنة البيانات وتحديث الواجهة
+  // دالة المزامنة مع السيرفر وتحديث الواجهة
   const syncProductsAndUpdate = async (showNotification = false) => {
+    if (!isOnline()) {
+      console.log('لا يوجد اتصال بالإنترنت. تم تخطي المزامنة.');
+      setNotification({
+        message: 'لا يوجد اتصال بالإنترنت. تم تخطي المزامنة.',
+        type: 'warning'
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+    
+    setIsSyncing(true);
+    
     try {
-      setIsLoading(true);
-      setIsSyncing(true); // إضافة مؤشر المزامنة النشطة
+      // بدلاً من استخدام syncProductsFromSupabase، نستخدم resetAndSyncProducts
+      // هذا سيضمن تطابق هيكل الجدول مع البيانات
+      console.log('استخدام إعادة ضبط ومزامنة المنتجات لحل مشكلة بنية الجدول...');
       
-      if (isOnline()) {
-        console.log("جاري المزامنة مع السيرفر...");
-        if (showNotification) {
-          setNotification({
-            message: "جاري المزامنة مع السيرفر...",
-            type: "info"
-          });
+      const serverProducts = await resetAndSyncProducts(products);
+      
+      if (serverProducts) {
+        // تحديث واجهة المستخدم بالمنتجات المزامنة
+        setProducts(serverProducts as unknown as Product[]);
+        console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
+        
+        // التأكد من تحديث البيانات المحلية أيضاً
+        localStorage.setItem('products', JSON.stringify(serverProducts));
+        try {
+          await saveData('products', serverProducts);
+        } catch (e) {
+          console.error('خطأ في حفظ البيانات محلياً:', e);
         }
         
-        const serverProducts = await forceRefreshFromServer();
-        if (serverProducts) {
-          setProducts(serverProducts.filter(Boolean) as Product[]);
-          console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
-          
-          // التأكد من تحديث البيانات المحلية أيضاً
-          localStorage.setItem('products', JSON.stringify(serverProducts));
-          try {
-            await saveData('products', serverProducts);
-          } catch (e) {
-            console.error('خطأ في حفظ البيانات محلياً:', e);
-          }
-          
-          if (showNotification) {
-            setNotification({
-              message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
-              type: "success"
-            });
-          }
-        } else {
-          // إذا لم تكن هناك بيانات على السيرفر، نحاول رفع البيانات المحلية
-          console.log("لم يتم العثور على منتجات في السيرفر، جاري رفع البيانات المحلية");
-          
-          if (products.length > 0) {
-            const updatedProducts = await saveProductsToSupabase(products);
-            if (updatedProducts && updatedProducts.length > 0) {
-              setProducts(updatedProducts.filter(Boolean) as Product[]);
-              
-              if (showNotification) {
-                setNotification({
-                  message: `تم رفع ${updatedProducts.length} منتج إلى السيرفر بنجاح`,
-                  type: "success"
-                });
-              }
-            }
-          } else {
-            if (showNotification) {
-              setNotification({
-                message: "لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية",
-                type: "warning"
-              });
-            }
-          }
-        }
-      } else {
-        console.log("الجهاز غير متصل بالإنترنت، استخدام البيانات المحلية");
         if (showNotification) {
           setNotification({
-            message: "الجهاز غير متصل بالإنترنت، استخدام البيانات المحلية",
+            message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
+            type: "success"
+          });
+          setTimeout(() => setNotification(null), 5000);
+        }
+      } else {
+        console.log("لم يتم العثور على منتجات في السيرفر");
+        
+        if (showNotification) {
+          setNotification({
+            message: "لم يتم العثور على منتجات في السيرفر",
             type: "warning"
           });
+          setTimeout(() => setNotification(null), 5000);
         }
       }
     } catch (error: any) {
-      console.error("خطأ في مزامنة المنتجات:", error);
-      if (showNotification) {
-        setNotification({
-          message: `خطأ في مزامنة المنتجات: ${error.message || "حدث خطأ غير معروف"}`,
-          type: "error"
-        });
-      }
-    } finally {
-      setIsLoading(false);
-      setIsSyncing(false); // إنهاء حالة المزامنة النشطة
+      console.error("خطأ أثناء المزامنة:", error);
       
-      // تأخير إزالة الإشعارات لضمان رؤيتها
-      if (showNotification) {
-        setTimeout(() => setNotification(null), 3000);
-      }
+      setNotification({
+        message: `حدث خطأ أثناء المزامنة: ${error.message || "خطأ غير معروف"}`,
+        type: "error"
+      });
+      setTimeout(() => setNotification(null), 8000);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -618,101 +596,151 @@ export default function AdminProducts() {
     syncProductsAndUpdate(true);
   };
 
-  // دالة لإصلاح مشاكل المزامنة والجداول
-  const handleFixSync = async () => {
-    if (!window.confirm('سيتم حذف جميع المنتجات من قاعدة البيانات وإعادة رفعها. هل أنت متأكد؟')) {
-      return;
-    }
-    
-    setIsLoading(true);
-    setNotification({
-      message: 'جاري إصلاح مشاكل المزامنة...',
-      type: 'info'
-    });
-    
-    try {
-      // استخدام الدالة الجديدة لإعادة ضبط ورفع المنتجات
-      const result = await resetAndSyncProducts(products);
-      
-      if (result && result.length > 0) {
-        // استخدام الإجبار النوعي البسيط
-        setProducts(result as unknown as Product[]);
-        setNotification({
-          message: `تم إصلاح المزامنة بنجاح. تم رفع ${result.length} منتج.`,
-          type: 'success'
-        });
-        
-        // تحديث التخزين المحلي أيضاً
-        localStorage.setItem('products', JSON.stringify(result));
-        await saveData('products', result);
-      } else {
-        setNotification({
-          message: 'تم إصلاح هيكل الجدول، لكن لا توجد منتجات للرفع.',
-          type: 'warning'
-        });
-      }
-    } catch (error: any) {
-      console.error('فشل في إصلاح المزامنة:', error);
-      setNotification({
-        message: `حدث خطأ أثناء محاولة الإصلاح: ${error.message || 'خطأ غير معروف'}`,
-        type: 'error'
-      });
-    } finally {
-      setIsLoading(false);
-      setTimeout(() => setNotification(null), 8000);
-    }
-  };
-
   return (
-    <div>
-      {notification && (
-        <div 
-          className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-md ${
-            notification.type === 'success' ? 'bg-green-100 text-green-800' : notification.type === 'error' ? 'bg-red-100 text-red-800' : notification.type === 'info' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'
-          }`}
+    <div className="p-4 md:p-5 rtl">
+      {/* زر إصلاح المزامنة البارز */}
+      <div className="mb-6 w-full">
+        <button
+          onClick={async () => {
+            if (!window.confirm("هذا سيحذف جميع المنتجات من قاعدة البيانات ويعيد إنشاء الجدول بالشكل الصحيح. هل أنت متأكد؟")) {
+              return;
+            }
+            
+            setIsSyncing(true);
+            setNotification({
+              message: "جاري إصلاح مشكلة المزامنة...",
+              type: "info"
+            });
+            
+            try {
+              const result = await resetAndSyncProducts(products);
+              if (result) {
+                setProducts(result as unknown as Product[]);
+                localStorage.setItem('products', JSON.stringify(result));
+                
+                setNotification({
+                  message: "تم إصلاح مشكلة المزامنة بنجاح",
+                  type: "success"
+                });
+                setTimeout(() => setNotification(null), 5000);
+              }
+            } catch (error: any) {
+              console.error("خطأ أثناء عملية الإصلاح:", error);
+              setNotification({
+                message: `فشل الإصلاح: ${error.message}`,
+                type: "error"
+              });
+              setTimeout(() => setNotification(null), 8000);
+            } finally {
+              setIsSyncing(false);
+            }
+          }}
+          className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white text-lg font-bold py-4 px-6 rounded-md shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+          disabled={isSyncing || isLoading}
         >
+          {isSyncing ? (
+            <span className="flex items-center">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              جاري إصلاح مشكلة المزامنة...
+            </span>
+          ) : (
+            <span className="flex items-center">
+              <FiTool className="ml-2 h-6 w-6" />
+              إصلاح فوري لمشكلة المزامنة
+            </span>
+          )}
+        </button>
+        <p className="text-center text-gray-600 mt-2 text-sm">استخدم هذا الزر فقط عند مواجهة مشاكل في مزامنة المنتجات مع السيرفر</p>
+      </div>
+
+      {notification && (
+        <div className={`${
+          notification.type === 'error' ? 'bg-red-100 text-red-700' : 
+          notification.type === 'success' ? 'bg-green-100 text-green-700' : 
+          'bg-blue-100 text-blue-700'
+        } p-4 mb-4 rounded-md shadow-sm`}>
           {notification.message}
         </div>
       )}
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold">إدارة المنتجات</h1>
-        <div className="flex flex-col sm:flex-row gap-2">
+      
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold mb-2 md:mb-0">إدارة المنتجات</h1>
+        <div className="flex flex-wrap gap-2">
+          {/* زر الإصلاح الفوري */}
           <button
-            onClick={handleSyncWithServer}
-            disabled={isSyncing || !isOnline()}
-            className={`px-4 py-2 rounded-md flex items-center text-sm ${
-              isOnline() 
-                ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-            }`}
+            onClick={async () => {
+              if (!window.confirm("هذا سيحذف جميع المنتجات من قاعدة البيانات ويعيد إنشاء الجدول بالشكل الصحيح. هل أنت متأكد؟")) {
+                return;
+              }
+              
+              setIsSyncing(true);
+              setNotification({
+                message: "جاري إصلاح مشكلة المزامنة...",
+                type: "info"
+              });
+              
+              try {
+                const result = await resetAndSyncProducts(products);
+                if (result) {
+                  setProducts(result as unknown as Product[]);
+                  localStorage.setItem('products', JSON.stringify(result));
+                  
+                  setNotification({
+                    message: "تم إصلاح مشكلة المزامنة بنجاح",
+                    type: "success"
+                  });
+                  setTimeout(() => setNotification(null), 5000);
+                }
+              } catch (error: any) {
+                console.error("خطأ أثناء عملية الإصلاح:", error);
+                setNotification({
+                  message: `فشل الإصلاح: ${error.message}`,
+                  type: "error"
+                });
+                setTimeout(() => setNotification(null), 8000);
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+            className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-4 py-2 rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={isSyncing || isLoading}
           >
             {isSyncing ? (
-              <>
-                <FiRefreshCw className="ml-2 animate-spin" />
-                جارِ المزامنة...
-              </>
-            ) : (
-              <>
-                <FiRefreshCw className="ml-2" />
-                مزامنة مع السيرفر
-              </>
-            )}
+              <span className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري المعالجة...
+              </span>
+            ) : "إصلاح فوري لمشكلة المزامنة"}
           </button>
+          
+          <button 
+            onClick={handleSyncWithServer} 
+            className="bg-purple-600 text-white px-4 py-2 rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={isSyncing || isLoading || !isOnline()}
+          >
+            {isSyncing ? (
+              <span className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري المزامنة...
+              </span>
+            ) : "مزامنة مع السيرفر"}
+          </button>
+          
           <button
             onClick={handleAddProduct}
             className="bg-primary text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
           >
             <FiPlus className="ml-2" />
             إضافة منتج جديد
-          </button>
-          <button
-            onClick={handleFixSync}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md flex items-center self-end md:self-auto"
-            disabled={isLoading || !isOnline()}
-          >
-            <FiTool className="ml-2" />
-            إصلاح مشكلات المزامنة
           </button>
         </div>
       </div>
