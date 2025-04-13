@@ -598,11 +598,59 @@ export async function resetAndSyncProducts(products: any[]) {
       };
     }
     
-    // لن نقوم بحذف المنتجات القديمة، بل بتحديثها
+    // جلب كل المنتجات الموجودة حالياً في Supabase
+    const { data: existingDbProducts, error: fetchError } = await supabase
+      .from('products')
+      .select('id');
+    
+    if (fetchError) {
+      console.error('فشل في جلب المنتجات الموجودة:', fetchError);
+      return {
+        success: false,
+        message: `تم الحفظ محلياً فقط. فشل في جلب المنتجات الموجودة: ${fetchError.message}`
+      };
+    }
+    
+    // تجميع معرفات المنتجات المحلية
+    const localProductIds = products.map(product => product.id);
+    
+    // تحديد المنتجات التي يجب حذفها (الموجودة في Supabase ولكن غير موجودة محلياً)
+    const productsToDelete = existingDbProducts
+      .filter(dbProduct => !localProductIds.includes(dbProduct.id))
+      .map(product => product.id);
+    
+    // حذف المنتجات غير الموجودة محلياً من Supabase
+    if (productsToDelete.length > 0) {
+      console.log(`حذف ${productsToDelete.length} منتج من Supabase...`);
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .in('id', productsToDelete);
+      
+      if (deleteError) {
+        console.error('فشل في حذف المنتجات غير المطلوبة:', deleteError);
+        // نستمر في العملية على الرغم من فشل الحذف
+      } else {
+        console.log(`تم حذف ${productsToDelete.length} منتج بنجاح من Supabase`);
+      }
+    }
 
     // تحضير المنتجات للإضافة أو التحديث
     if (!products || products.length === 0) {
       console.log('لا توجد منتجات لإضافتها');
+      
+      // إذا كانت هناك منتجات تم حذفها، نعتبر العملية ناجحة
+      if (productsToDelete.length > 0) {
+        // تحديث الطابع الزمني للمزامنة
+        lastSyncTimestamp = Date.now();
+        localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+        
+        return {
+          success: true,
+          message: `تمت المزامنة بنجاح. تم حذف ${productsToDelete.length} منتج.`
+        };
+      }
+      
       return {
         success: true,
         message: 'تمت المزامنة بنجاح. لا توجد منتجات لإضافتها.'

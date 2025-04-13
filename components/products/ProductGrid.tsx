@@ -257,7 +257,7 @@ export default function ProductGrid({
       {showSyncMessage && (
         <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-md text-sm">
           تم تحديث البيانات من الخادم المركزي
-        </div>
+      </div>
       )}
       
       {title && (
@@ -265,11 +265,11 @@ export default function ProductGrid({
           <h2 className="text-2xl font-bold">{title}</h2>
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {products.map((product) => (
-          <ProductCard key={product.id} product={product} />
-        ))}
-      </div>
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
     </div>
   );
 } 
