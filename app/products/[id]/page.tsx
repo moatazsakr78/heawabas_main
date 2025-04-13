@@ -32,7 +32,9 @@ export default function ProductPage() {
             
             if (serverProducts && serverProducts.length > 0) {
               // البحث عن المنتج في بيانات السيرفر
-              const foundProduct = serverProducts.filter((p): p is Product => p !== null).find(p => p.id === params.id);
+              const foundProduct = serverProducts
+                .filter((p) => p !== null)
+                .find(p => p.id === params.id);
               
               if (foundProduct) {
                 console.log('Found product on server:', foundProduct.name);
