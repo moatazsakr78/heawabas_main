@@ -62,16 +62,16 @@ export default function AdminProducts() {
     // إضافة مستمع لأحداث التخزين
     window.addEventListener('customStorageChange', handleStorageChange);
     
-    // إضافة تذكير للمزامنة بعد دقائق معينة
-    const intervalId = setInterval(() => {
-      checkAndSyncIfNeeded();
-    }, 60000 * 5); // كل 5 دقائق
+    // تعطيل المزامنة التلقائية الدورية لأنها تسبب مشاكل في المزامنة المتكررة
+    // const intervalId = setInterval(() => {
+    //   checkAndSyncIfNeeded();
+    // }, 60000 * 5); // كل 5 دقائق
     
     return () => {
       window.removeEventListener('online', handleOnlineStatusChange);
       window.removeEventListener('offline', handleOnlineStatusChange);
       window.removeEventListener('customStorageChange', handleStorageChange);
-      clearInterval(intervalId);
+      // clearInterval(intervalId);
     };
   }, []);
   
@@ -167,25 +167,27 @@ export default function AdminProducts() {
   // دالة للتعامل مع تغييرات الاتصال بالإنترنت
   const handleOnlineStatusChange = () => {
     if (isOnline()) {
-      console.log('تم استعادة الاتصال بالإنترنت. جاري تحديث البيانات...');
+      console.log('تم استعادة الاتصال بالإنترنت.');
       setNotification({
-        message: 'تم استعادة الاتصال بالإنترنت. جاري مزامنة البيانات...',
+        message: 'تم استعادة الاتصال بالإنترنت. اضغط على زر المزامنة لتحديث البيانات.',
         type: 'success'
       });
+      setTimeout(() => setNotification(null), 5000);
       
-      // نمنع المزامنة المتكررة
-      if (!isSyncing && !syncCooldown) {
-        // محاولة مزامنة البيانات عند عودة الاتصال
-        setTimeout(() => {
-          syncProductsAndUpdate(false);
-        }, 1500); // ننتظر قليلاً قبل المزامنة
-      }
+      // تعطيل المزامنة التلقائية عند استعادة الاتصال لمنع المزامنة المتكررة
+      // التعليق التالي يمنع المزامنة التلقائية عند استعادة الاتصال
+      // if (!isSyncing && !syncCooldown) {
+      //   setTimeout(() => {
+      //     syncProductsAndUpdate(false);
+      //   }, 1500);
+      // }
     } else {
       console.log('تم فقد الاتصال بالإنترنت. سيتم استخدام البيانات المحلية فقط.');
       setNotification({
         message: 'تم فقد الاتصال بالإنترنت. سيتم حفظ التغييرات محلياً فقط.',
         type: 'error'
       });
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
@@ -240,6 +242,9 @@ export default function AdminProducts() {
             saveData('products', serverProducts);
             localStorage.setItem('products', JSON.stringify(serverProducts));
             
+            // تحديث وقت آخر مزامنة
+            setLastSyncTime(Date.now());
+            
             setNotification({
               message: 'تم تحميل البيانات من السيرفر بنجاح',
               type: 'success'
@@ -267,15 +272,15 @@ export default function AdminProducts() {
         // إظهار رسالة توضح أن البيانات من التخزين المحلي
         if (isOnline()) {
           setNotification({
-            message: 'تم تحميل البيانات من التخزين المحلي. جاري محاولة المزامنة مع السيرفر...',
+            message: 'تم تحميل البيانات من التخزين المحلي.',
             type: 'info'
           });
           setTimeout(() => setNotification(null), 5000);
           
-          // محاولة مزامنة البيانات المحلية مع السيرفر بعد التحميل
-          setTimeout(() => {
-            syncProductsAndUpdate(false);
-          }, 1000);
+          // نجعل المزامنة التلقائية عند التحميل اختيارية - تم تعطيلها لمنع المزامنة المتكررة
+          // setTimeout(() => {
+          //   syncProductsAndUpdate(false);
+          // }, 1000);
         }
       } else {
         // التحقق من وجود البيانات في localStorage التقليدي
@@ -290,20 +295,20 @@ export default function AdminProducts() {
               saveData('products', parsedProducts);
               setProducts(parsedProducts);
               
-              // محاولة رفع البيانات إلى السيرفر إذا كان متصلاً بالإنترنت
-              if (isOnline()) {
-                try {
-                  await saveProductsToSupabase(parsedProducts);
-                  console.log('تم رفع البيانات المحلية إلى السيرفر');
-                  setNotification({
-                    message: 'تم رفع البيانات المحلية إلى السيرفر بنجاح',
-                    type: 'success'
-                  });
-                  setTimeout(() => setNotification(null), 3000);
-                } catch (uploadError) {
-                  console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', uploadError);
-                }
-              }
+              // محاولة رفع البيانات إلى السيرفر إذا كان متصلاً بالإنترنت - تم تعطيلها لمنع المزامنة المتكررة
+              // if (isOnline()) {
+              //   try {
+              //     await saveProductsToSupabase(parsedProducts);
+              //     console.log('تم رفع البيانات المحلية إلى السيرفر');
+              //     setNotification({
+              //       message: 'تم رفع البيانات المحلية إلى السيرفر بنجاح',
+              //       type: 'success'
+              //     });
+              //     setTimeout(() => setNotification(null), 3000);
+              //   } catch (uploadError) {
+              //     console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', uploadError);
+              //   }
+              // }
             }
           } catch (error) {
             console.error('خطأ في تحليل البيانات من localStorage:', error);
@@ -342,19 +347,19 @@ export default function AdminProducts() {
           saveData('products', defaultProducts);
           setProducts(defaultProducts);
           
-          // مزامنة البيانات الافتراضية مع السيرفر إذا كان متصلاً
-          if (isOnline()) {
-            try {
-              await saveProductsToSupabase(defaultProducts);
-              setNotification({
-                message: 'تم تهيئة قاعدة البيانات بمنتجات افتراضية ومزامنتها مع السيرفر',
-                type: 'success'
-              });
-              setTimeout(() => setNotification(null), 3000);
-            } catch (error) {
-              console.error('خطأ في تهيئة السيرفر بالبيانات الافتراضية:', error);
-            }
-          }
+          // مزامنة البيانات الافتراضية مع السيرفر إذا كان متصلاً - تم تعطيلها
+          // if (isOnline()) {
+          //   try {
+          //     await saveProductsToSupabase(defaultProducts);
+          //     setNotification({
+          //       message: 'تم تهيئة قاعدة البيانات بمنتجات افتراضية ومزامنتها مع السيرفر',
+          //       type: 'success'
+          //     });
+          //     setTimeout(() => setNotification(null), 3000);
+          //   } catch (error) {
+          //     console.error('خطأ في تهيئة السيرفر بالبيانات الافتراضية:', error);
+          //   }
+          // }
         }
       }
     } catch (error) {
@@ -371,8 +376,8 @@ export default function AdminProducts() {
 
   // دالة المزامنة مع السيرفر وتحديث الواجهة
   const syncProductsAndUpdate = async (showNotification = false) => {
-    // وقت النتظار بين عمليات المزامنة (3 ثوان)
-    const SYNC_COOLDOWN_TIME = 3000; // 3 ثوان
+    // وقت النتظار بين عمليات المزامنة (10 ثوان)
+    const SYNC_COOLDOWN_TIME = 10000; // 10 ثوان
     
     // التحقق إذا كان هناك عملية مزامنة حالية
     if (isSyncing) {
@@ -413,7 +418,7 @@ export default function AdminProducts() {
     try {
       // بدلاً من استخدام syncProductsFromSupabase، نستخدم resetAndSyncProducts
       // هذا سيضمن تطابق هيكل الجدول مع البيانات
-      console.log('استخدام إعادة ضبط ومزامنة المنتجات لحل مشكلة بنية الجدول...');
+      console.log('استخدام إعادة ضبط ومزامنة المنتجات...');
       
       const serverProducts = await resetAndSyncProducts(products);
       
@@ -476,8 +481,9 @@ export default function AdminProducts() {
     } finally {
       setIsSyncing(false);
       
-      // إعادة تعيين حالة المزامنة بعد وقت الانتظار
+      // إعادة تعيين حالة المزامنة بعد وقت الانتظار (10 ثوان)
       setTimeout(() => {
+        console.log('تم إعادة تعيين وقت الانتظار للمزامنة');
         setSyncCooldown(false);
       }, SYNC_COOLDOWN_TIME);
     }
@@ -871,12 +877,56 @@ export default function AdminProducts() {
     }
   };
 
+  // دالة للتعامل مع تغييرات التخزين
+  const handleStorageChange = (event: any) => {
+    // تجنب إعادة التحميل إذا كان مصدر التغيير هو هذه الصفحة
+    if (event.detail?.source === 'server' || event.detail?.type !== 'products') {
+      return;
+    }
+    
+    if (event.detail?.type === 'products') {
+      console.log('تم اكتشاف تغيير في بيانات المنتجات من مصدر خارجي، جاري تحديث الواجهة...');
+      // تحميل البيانات من التخزين المحلي فقط دون مزامنة مع السيرفر
+      loadLocalProductsOnly();
+    }
+  };
+  
+  // دالة لتحميل المنتجات من التخزين المحلي فقط دون مزامنة
+  const loadLocalProductsOnly = async () => {
+    try {
+      console.log('تحميل البيانات المحلية فقط...');
+      // محاولة استرجاع البيانات من التخزين المحلي الدائم
+      const savedProducts = await loadData('products');
+      
+      if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
+        console.log('تم تحميل البيانات من التخزين المحلي:', savedProducts.length);
+        setProducts(savedProducts as Product[]);
+      } else {
+        // التحقق من وجود البيانات في localStorage التقليدي
+        const localStorageProducts = localStorage.getItem('products');
+        if (localStorageProducts) {
+          try {
+            const parsedProducts = JSON.parse(localStorageProducts);
+            if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
+              console.log('تم تحميل البيانات من localStorage:', parsedProducts.length);
+              setProducts(parsedProducts);
+            }
+          } catch (error) {
+            console.error('خطأ في تحليل البيانات من localStorage:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('خطأ في تحميل البيانات المحلية:', error);
+    }
+  };
+
   // دالة لمزامنة البيانات مع السيرفر
   const handleSyncWithServer = async () => {
     // التحقق من وقت الانتظار بين عمليات المزامنة
     if (syncCooldown) {
       setNotification({
-        message: 'يرجى الانتظار قليلاً بين عمليات المزامنة',
+        message: 'يرجى الانتظار قليلاً قبل إجراء مزامنة جديدة',
         type: 'info'
       });
       setTimeout(() => setNotification(null), 2000);
@@ -902,15 +952,8 @@ export default function AdminProducts() {
       return;
     }
     
+    console.log('بدء مزامنة يدوية للمنتجات مع السيرفر');
     syncProductsAndUpdate(true);
-  };
-
-  // دالة للتعامل مع تغييرات التخزين
-  const handleStorageChange = (event: any) => {
-    if (event.detail?.type === 'products') {
-      console.log('تم اكتشاف تغيير في بيانات المنتجات، جاري تحديث الواجهة...');
-      loadProductsData();
-    }
   };
 
   return (
