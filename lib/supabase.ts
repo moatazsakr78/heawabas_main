@@ -67,7 +67,10 @@ function mapDatabaseToAppModel(product: any) {
 function mapAppModelToDatabase(product: any) {
   if (!product) return null;
   
-  return {
+  console.log('تحويل المنتج:', product.id, 'createdAt:', product.createdAt);
+  
+  // إنشاء كائن النتيجة
+  const result = {
     id: product.id,
     name: product.name,
     product_code: product.productCode,
@@ -77,9 +80,14 @@ function mapAppModelToDatabase(product: any) {
     box_price: product.boxPrice,
     image_url: product.imageUrl,
     is_new: product.isNew,
-    created_at: product.createdAt,
+    created_at: product.createdAt, // تحويل من createdAt إلى created_at
     category_id: product.categoryId
   };
+  
+  // طباعة الناتج للتحقق
+  console.log('بعد التحويل:', result.id, 'created_at:', result.created_at);
+  
+  return result;
 }
 
 // دالة مساعدة لإنشاء جدول المنتجات يدوياً من خلال استعلام SQL مباشر
@@ -132,6 +140,11 @@ export async function saveProductsToSupabase(products: any[]) {
       index === self.findIndex(t => t.id === p.id)
     );
     
+    // طباعة أول منتج للتحقق
+    if (uniqueProducts.length > 0) {
+      console.log('نموذج منتج من التطبيق:', JSON.stringify(uniqueProducts[0]));
+    }
+    
     // 2. تحويل البيانات إلى الصيغة المطلوبة لقاعدة البيانات
     const serializedProducts = uniqueProducts.map(product => {
       const dbProduct = mapAppModelToDatabase(product);
@@ -160,8 +173,8 @@ export async function saveProductsToSupabase(products: any[]) {
       return [];
     }
     
-    // طباعة نموذج للتحقق
-    console.log('نموذج المنتج للإدراج:', JSON.stringify(serializedProducts[0]));
+    // طباعة نموذج للتحقق بعد التحويل
+    console.log('نموذج المنتج للإدراج بعد التحويل:', JSON.stringify(serializedProducts[0]));
     
     // 3. حاول الإدراج باستخدام الطلب المباشر
     try {
