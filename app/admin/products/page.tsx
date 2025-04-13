@@ -391,8 +391,8 @@ export default function AdminProducts() {
         errorMessage = error.userFriendlyMessage || error.message || 'خطأ غير معروف في المزامنة';
         
         setNotification({
-          message: `تم حفظ البيانات محليًا فقط. فشلت المزامنة مع السيرفر: ${errorMessage}`,
-          type: 'error'
+          message: `تم حفظ البيانات محليًا فقط. ${errorMessage}`,
+          type: 'warning'  // تغيير النوع إلى تحذير بدلاً من خطأ لأن البيانات نُفذت محلياً
         });
         setTimeout(() => setNotification(null), 8000);
       }

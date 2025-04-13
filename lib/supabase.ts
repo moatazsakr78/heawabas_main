@@ -2,6 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { Product } from '@/types';
 import { saveData } from './localStorage';
 
+// تعريف interface للخطأ المخصص
+interface EnhancedError extends Error {
+  userFriendlyMessage?: string;
+}
+
 // إعدادات Supabase من متغيرات البيئة أو القيم الثابتة
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://yzdhtfmtaznscbxfykxy.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZGh0Zm10YXpuc2NieGZ5a3h5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTcxNTMzNzgsImV4cCI6MjAzMjcyOTM3OH0.Wbn1KGfCSYjNtvYSyDpjMDhHUw9E5iA-6YK2Qe16ZyY';
@@ -945,6 +950,12 @@ export async function resetAndSyncProducts(products: any[]) {
       if (error.message.includes('row-level security policy')) {
         console.log('خطأ في سياسة أمان مستوى الصف (RLS)، تفعيل الوضع المحلي فقط...');
         
+        const userFriendlyError = {
+          message: 'تم حفظ البيانات محلياً بنجاح. لكن هناك مشكلة في إعدادات سياسة أمان قاعدة البيانات (RLS) تمنع المزامنة مع السيرفر.',
+          userFriendlyMessage: 'تم حفظ البيانات محلياً فقط. لتفعيل المزامنة مع السيرفر، يرجى تعديل إعدادات الـ RLS في Supabase من خلال لوحة التحكم.',
+          originalError: error,
+        };
+        
         // حفظ البيانات محلياً على أي حال
         if (products && products.length > 0) {
           localStorage.setItem('products', JSON.stringify(products));
@@ -965,12 +976,18 @@ export async function resetAndSyncProducts(products: any[]) {
           const event = new Event('customStorageChange');
           window.dispatchEvent(event);
           
-          return { success: true, message: 'تم حفظ البيانات محلياً فقط، لم يتم المزامنة مع السيرفر' };
+          return { 
+            success: true, 
+            message: 'تم حفظ البيانات محلياً فقط، بدون مزامنة مع السيرفر بسبب سياسة أمان RLS',
+            userFriendlyMessage: userFriendlyError.userFriendlyMessage
+          };
         }
       }
       
-      // إعادة طرح الخطأ لمعالجته في المستدعي
-      throw error;
+      // إعادة طرح الخطأ لمعالجته في المستدعي مع رسالة أكثر وضوحًا
+      const enhancedError = new Error('فشلت مزامنة المنتجات: تحقق من الاتصال بالإنترنت وهيكل البيانات وإعدادات Supabase.') as EnhancedError;
+      enhancedError.userFriendlyMessage = 'تم حفظ البيانات محلياً فقط، ويمكن استخدام زر "إصلاح فوري لمشكلة المزامنة" لحل المشكلة.';
+      throw enhancedError;
     }
 
     console.log('تم حفظ المنتجات بنجاح في Supabase:', data.length);
