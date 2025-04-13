@@ -612,84 +612,11 @@ export default function AdminProducts() {
 
   return (
     <div className="p-4 md:p-5 rtl">
-      {/* زر إصلاح المزامنة البارز */}
-      <div className="mb-6 w-full">
-        <button
-          onClick={async () => {
-            if (!window.confirm("هذا سيحذف جميع المنتجات من قاعدة البيانات ويعيد إنشاء الجدول بالشكل الصحيح. هل أنت متأكد؟")) {
-              return;
-            }
-            
-            setIsSyncing(true);
-            setNotification({
-              message: "جاري إصلاح مشكلة المزامنة...",
-              type: "info"
-            });
-            
-            try {
-              const result = await resetAndSyncProducts(products);
-              
-              if (Array.isArray(result)) {
-                // للتوافق مع الكود القديم
-                setProducts(result as unknown as Product[]);
-                localStorage.setItem('products', JSON.stringify(result));
-                
-                setNotification({
-                  message: "تم إصلاح مشكلة المزامنة بنجاح",
-                  type: "success"
-                });
-              } else if (result && typeof result === 'object') {
-                // الطريقة الجديدة: كائن يحتوي على حالة النجاح والرسالة
-                if (result.success) {
-                  setNotification({
-                    message: result.message,
-                    type: "success"
-                  });
-                } else {
-                  setNotification({
-                    message: result.message,
-                    type: "warning"
-                  });
-                }
-              }
-              
-              setTimeout(() => setNotification(null), 5000);
-            } catch (error: any) {
-              console.error("خطأ أثناء عملية الإصلاح:", error);
-              setNotification({
-                message: `فشل الإصلاح: ${error.message}`,
-                type: "error"
-              });
-              setTimeout(() => setNotification(null), 8000);
-            } finally {
-              setIsSyncing(false);
-            }
-          }}
-          className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white text-lg font-bold py-4 px-6 rounded-md shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
-          disabled={isSyncing || isLoading}
-        >
-          {isSyncing ? (
-            <span className="flex items-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              جاري إصلاح مشكلة المزامنة...
-            </span>
-          ) : (
-            <span className="flex items-center">
-              <FiTool className="ml-2 h-6 w-6" />
-              إصلاح فوري لمشكلة المزامنة
-            </span>
-          )}
-        </button>
-        <p className="text-center text-gray-600 mt-2 text-sm">استخدم هذا الزر فقط عند مواجهة مشاكل في مزامنة المنتجات مع السيرفر</p>
-      </div>
-
       {notification && (
         <div className={`${
           notification.type === 'error' ? 'bg-red-100 text-red-700' : 
           notification.type === 'success' ? 'bg-green-100 text-green-700' : 
+          notification.type === 'warning' ? 'bg-yellow-100 text-yellow-700' :
           'bg-blue-100 text-blue-700'
         } p-4 mb-4 rounded-md shadow-sm`}>
           {notification.message}
@@ -699,75 +626,9 @@ export default function AdminProducts() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4">
         <h1 className="text-2xl font-bold mb-2 md:mb-0">إدارة المنتجات</h1>
         <div className="flex flex-wrap gap-2">
-          {/* زر الإصلاح الفوري */}
-          <button
-            onClick={async () => {
-              if (!window.confirm("هذا سيحذف جميع المنتجات من قاعدة البيانات ويعيد إنشاء الجدول بالشكل الصحيح. هل أنت متأكد؟")) {
-                return;
-              }
-              
-              setIsSyncing(true);
-              setNotification({
-                message: "جاري إصلاح مشكلة المزامنة...",
-                type: "info"
-              });
-              
-              try {
-                const result = await resetAndSyncProducts(products);
-                
-                if (Array.isArray(result)) {
-                  // للتوافق مع الكود القديم
-                  setProducts(result as unknown as Product[]);
-                  localStorage.setItem('products', JSON.stringify(result));
-                  
-                  setNotification({
-                    message: "تم إصلاح مشكلة المزامنة بنجاح",
-                    type: "success"
-                  });
-                } else if (result && typeof result === 'object') {
-                  // الطريقة الجديدة: كائن يحتوي على حالة النجاح والرسالة
-                  if (result.success) {
-                    setNotification({
-                      message: result.message,
-                      type: "success"
-                    });
-                  } else {
-                    setNotification({
-                      message: result.message,
-                      type: "warning"
-                    });
-                  }
-                }
-                
-                setTimeout(() => setNotification(null), 5000);
-              } catch (error: any) {
-                console.error("خطأ أثناء عملية الإصلاح:", error);
-                setNotification({
-                  message: `فشل الإصلاح: ${error.message}`,
-                  type: "error"
-                });
-                setTimeout(() => setNotification(null), 8000);
-              } finally {
-                setIsSyncing(false);
-              }
-            }}
-            className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-4 py-2 rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-            disabled={isSyncing || isLoading}
-          >
-            {isSyncing ? (
-              <span className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                جاري المعالجة...
-              </span>
-            ) : "إصلاح فوري لمشكلة المزامنة"}
-          </button>
-          
           <button 
             onClick={handleSyncWithServer} 
-            className="bg-purple-600 text-white px-4 py-2 rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            className="bg-green-600 text-white px-4 py-2 rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center"
             disabled={isSyncing || isLoading || !isOnline()}
           >
             {isSyncing ? (
@@ -778,7 +639,12 @@ export default function AdminProducts() {
                 </svg>
                 جاري المزامنة...
               </span>
-            ) : "مزامنة مع السيرفر"}
+            ) : (
+              <span className="flex items-center">
+                <FiRefreshCw className="ml-2" />
+                مزامنة مع السيرفر
+              </span>
+            )}
           </button>
           
           <button
