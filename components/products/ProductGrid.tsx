@@ -47,7 +47,8 @@ export default function ProductGrid({
             
             if (serverProducts && serverProducts.length > 0) {
               console.log('Successfully loaded products from server:', serverProducts.length);
-              productData = serverProducts;
+              // تصفية القيم الفارغة لضمان توافق النوع مع Product[]
+              productData = serverProducts.filter(product => product !== null) as Product[];
               
               // تحديث البيانات المحلية
               localStorage.setItem('products', JSON.stringify(serverProducts));
