@@ -448,31 +448,64 @@ export async function syncProductsFromSupabase(force = false) {
         });
         
         // رفع البيانات المحلية
-        const { data, error } = await supabase
+        const { data: upsertedProducts, error: upsertError } = await supabase
           .from('products')
-          .insert(dbProducts)
-          .select();
+          .upsert(dbProducts, {
+            onConflict: 'id',
+            ignoreDuplicates: false // نريد تحديث السجلات الموجودة
+          })
+          .select(); // استخدام select() بدلاً من returning في الخيارات
         
-        if (error) {
-          // إذا كان الخطأ بسبب عدم وجود الجدول أو مشكلة في هيكله
-          if (error.code === 'PGRST116' || error.message.includes('does not exist') || error.message.includes('column')) {
-            console.error('خطأ في هيكل الجدول، يرجى التحقق من إعدادات قاعدة البيانات:', error);
-            console.log('سيتم استخدام البيانات المحلية فقط حتى يتم إصلاح مشكلة قاعدة البيانات');
-            return uniqueProducts; // استخدام البيانات المحلية
-          }
-          throw error;
+        if (upsertError) {
+          console.error('فشل في تحديث/إضافة المنتجات:', upsertError);
+          
+          // حفظ البيانات محلياً على أي حال
+          localStorage.setItem('products', JSON.stringify(products));
+          await saveData('products', products);
+          
+          return {
+            success: false,
+            message: `تم الحفظ محلياً فقط. فشل المزامنة: ${upsertError.message}`
+          };
         }
         
-        console.log('تم رفع البيانات المحلية بنجاح:', data.length);
+        console.log(`تم تحديث/إضافة ${dbProducts.length} منتج بنجاح`);
         
-        // تحويل البيانات المسترجعة إلى نموذج التطبيق
-        const appModels = data.map(mapDatabaseToAppModel);
+        // ⚠️ بعد upsert، نجلب كل البيانات من السيرفر بما في ذلك السجلات التي كانت موجودة من قبل
+        // هذا يضمن أن نحصل على جميع السجلات، وليس فقط تلك التي تم upsert لها
+        const { data: allCurrentProducts, error: fetchError } = await supabase
+          .from('products')
+          .select('*')
+          .eq('is_deleted', false) // نجلب فقط السجلات غير المحذوفة
+          .order('created_at', { ascending: false });
+        
+        if (fetchError) {
+          console.error('فشل في جلب جميع المنتجات بعد التحديث:', fetchError);
+          // نستمر بالبيانات التي قمنا بإرسالها على الأقل
+        }
+        
+        // تحويل البيانات المسترجعة من السيرفر إلى صيغة التطبيق
+        const finalProducts = allCurrentProducts ? 
+          allCurrentProducts.map(mapDatabaseToAppModel) : 
+          products; // استخدام البيانات المحلية إذا فشل جلب البيانات من السيرفر
+        
+        console.log(`تم استرجاع ${finalProducts.length} منتج من السيرفر بعد التحديث`);
         
         // تحديث الطابع الزمني للمزامنة
         lastSyncTimestamp = Date.now();
         localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
         
-        return appModels;
+        // حفظ في التخزين المحلي أيضاً للتأكد من التزامن
+        localStorage.setItem('products', JSON.stringify(finalProducts));
+        await saveData('products', finalProducts);
+        
+        // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
+        const event = new CustomEvent('customStorageChange', {
+          detail: { type: 'products', source: 'server' }
+        });
+        window.dispatchEvent(event);
+        
+        return finalProducts;
       } catch (error) {
         console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', error);
         // في حالة الفشل، استخدم البيانات المحلية على الأقل
@@ -644,6 +677,7 @@ export async function resetAndSyncProducts(products: any[]) {
   }
 
   console.log('بدء إعادة ضبط ومزامنة المنتجات...');
+  console.log(`عدد المنتجات المطلوب مزامنتها: ${products.length}`);
   
   try {
     // التحقق من وجود الجدول والصلاحيات أولاً
@@ -682,70 +716,45 @@ export async function resetAndSyncProducts(products: any[]) {
       };
     }
     
-    // جلب كل المنتجات الموجودة حالياً في Supabase
-    const { data: existingDbProducts, error: fetchError } = await supabase
+    // ⚠️⚠️ المشكلة الأساسية: كنا نحذف المنتجات الموجودة قبل إضافة المنتجات الجديدة
+    // الآن سنجلب المنتجات الموجودة أولاً، ثم نضيف إليها المنتجات الجديدة قبل الرفع
+    
+    // جلب كل المنتجات الموجودة في Supabase
+    const { data: existingProducts, error: fetchError } = await supabase
       .from('products')
-      .select('id');
+      .select('*');
     
     if (fetchError) {
       console.error('فشل في جلب المنتجات الموجودة:', fetchError);
-      return {
-        success: false,
-        message: `تم الحفظ محلياً فقط. فشل في جلب المنتجات الموجودة: ${fetchError.message}`
-      };
+      console.log('سنواصل بالمنتجات المحلية فقط...');
     }
     
-    // تجميع معرفات المنتجات المحلية
-    const localProductIds = products.map(product => product.id);
+    // تحويل المنتجات الموجودة إلى تنسيق التطبيق
+    const existingAppProducts = existingProducts ? 
+      existingProducts.map(mapDatabaseToAppModel) : 
+      [];
     
-    // تحديد المنتجات التي يجب حذفها (الموجودة في Supabase ولكن غير موجودة محلياً)
-    const productsToDelete = existingDbProducts
-      .filter(dbProduct => !localProductIds.includes(dbProduct.id))
-      .map(product => product.id);
+    // دمج المنتجات المحلية مع المنتجات الموجودة (مع تفضيل المحلية في حالة وجود نفس المعرف)
+    // إنشاء Map لتخزين المنتجات المحلية بالمعرف
+    const localProductsMap = new Map();
+    products.forEach(product => {
+      localProductsMap.set(product.id, product);
+    });
     
-    // حذف المنتجات غير الموجودة محلياً من Supabase
-    if (productsToDelete.length > 0) {
-      console.log(`حذف ${productsToDelete.length} منتج من Supabase...`);
-      const { error: deleteError } = await supabase
-        .from('products')
-        .delete()
-        .in('id', productsToDelete);
-      
-      if (deleteError) {
-        console.error('فشل في حذف المنتجات غير المطلوبة:', deleteError);
-        // نستمر في العملية على الرغم من فشل الحذف
-      } else {
-        console.log(`تم حذف ${productsToDelete.length} منتج بنجاح من Supabase`);
+    // إضافة المنتجات الموجودة التي ليست ضمن المنتجات المحلية
+    existingAppProducts.forEach(product => {
+      if (!localProductsMap.has(product.id)) {
+        localProductsMap.set(product.id, product);
       }
-    }
-
-    // تحضير المنتجات للإضافة أو التحديث
-    if (!products || products.length === 0) {
-      console.log('لا توجد منتجات لإضافتها');
-      
-      // إذا كانت هناك منتجات تم حذفها، نعتبر العملية ناجحة
-      if (productsToDelete.length > 0) {
-        // تحديث الطابع الزمني للمزامنة
-        lastSyncTimestamp = Date.now();
-        localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-        
-        return {
-          success: true,
-          message: `تمت المزامنة بنجاح. تم حذف ${productsToDelete.length} منتج.`
-        };
-      }
-      
-      return {
-        success: true,
-        message: 'تمت المزامنة بنجاح. لا توجد منتجات لإضافتها.'
-      };
-    }
+    });
     
-    // تحضير البيانات للإدراج
-    const dbProducts = products.map(product => {
-      // تأكد من وجود كل الحقول المطلوبة
-      const now = new Date().toISOString();
-      
+    // تحويل الخريطة إلى مصفوفة
+    const mergedProducts = Array.from(localProductsMap.values());
+    
+    console.log(`تم دمج المنتجات المحلية والسيرفر، العدد الإجمالي: ${mergedProducts.length}`);
+    
+    // تحضير البيانات للإرسال
+    const dbProducts = mergedProducts.map(product => {
       // طباعة القيم للتشخيص
       console.log('تحضير المنتج للإرسال إلى السيرفر:', {
         id: product.id,
@@ -757,11 +766,12 @@ export async function resetAndSyncProducts(products: any[]) {
         boxPrice: product.boxPrice
       });
       
+      const now = new Date().toISOString();
       return {
         id: product.id || ('new-' + Date.now() + Math.random().toString(36).substring(2, 9)),
         name: product.name || 'منتج بدون اسم',
         product_code: product.productCode || '',
-        // استخدام التحقق الصريح وليس || للقيم الرقمية
+        // استخدام التحقق الصريح للقيم الرقمية
         box_quantity: typeof product.boxQuantity === 'number' ? product.boxQuantity : 0,
         piece_price: typeof product.piecePrice === 'number' ? product.piecePrice : 0,
         pack_price: typeof product.packPrice === 'number' ? product.packPrice : 0,
@@ -769,45 +779,53 @@ export async function resetAndSyncProducts(products: any[]) {
         image_url: product.imageUrl || '',
         is_new: product.isNew === true,
         created_at: product.createdAt || now,
-        updated_at: new Date().toISOString(), // تحديث دائماً
+        updated_at: new Date().toISOString(),
         category_id: product.categoryId || null
       };
     });
     
-    // طباعة البيانات المُعدة للتشخيص
-    console.log('البيانات الجاهزة للإرسال إلى Supabase:', dbProducts);
-    
-    // استخدام upsert بدلاً من delete ثم insert
-    const { data: upsertedProducts, error: upsertError } = await supabase
+    // حذف جميع البيانات الموجودة أولاً
+    const { error: deleteError } = await supabase
       .from('products')
-      .upsert(dbProducts, {
-        onConflict: 'id',
-        ignoreDuplicates: false // نريد تحديث السجلات الموجودة
-      })
+      .delete()
+      .neq('id', 'dummy-id'); // هذا سيحذف كل شيء
+    
+    if (deleteError) {
+      console.error('فشل في حذف البيانات الموجودة:', deleteError);
+      // نستمر في العملية
+    }
+    
+    // إدراج جميع البيانات المدمجة
+    const { data: insertedProducts, error: insertError } = await supabase
+      .from('products')
+      .insert(dbProducts)
       .select();
     
-    if (upsertError) {
-      console.error('فشل في تحديث/إضافة المنتجات:', upsertError);
+    if (insertError) {
+      console.error('فشل في إدراج المنتجات:', insertError);
       
       // حفظ البيانات محلياً على أي حال
-      localStorage.setItem('products', JSON.stringify(products));
-      await saveData('products', products);
+      localStorage.setItem('products', JSON.stringify(mergedProducts));
+      await saveData('products', mergedProducts);
       
       return {
         success: false,
-        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${upsertError.message}`
+        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${insertError.message}`
       };
     }
     
-    console.log(`تم تحديث/إضافة ${dbProducts.length} منتج بنجاح`);
+    console.log(`تم إدراج ${dbProducts.length} منتج بنجاح في Supabase`);
     
     // تحديث الطابع الزمني للمزامنة
     lastSyncTimestamp = Date.now();
     localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
     
-    // حفظ في التخزين المحلي أيضاً للتأكد من التزامن
-    localStorage.setItem('products', JSON.stringify(products));
-    await saveData('products', products);
+    // تحويل البيانات المدرجة إلى نموذج التطبيق
+    const finalProducts = insertedProducts.map(mapDatabaseToAppModel);
+    
+    // حفظ في التخزين المحلي أيضاً
+    localStorage.setItem('products', JSON.stringify(finalProducts));
+    await saveData('products', finalProducts);
     
     // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
     const event = new CustomEvent('customStorageChange', {
@@ -815,7 +833,7 @@ export async function resetAndSyncProducts(products: any[]) {
     });
     window.dispatchEvent(event);
     
-    return upsertedProducts || [];
+    return finalProducts;
   } catch (error: any) {
     console.error('خطأ في resetAndSyncProducts:', error);
     
