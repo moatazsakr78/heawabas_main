@@ -49,6 +49,8 @@ export default function AdminProducts() {
     isNew: false,
   });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
+  const [syncCooldown, setSyncCooldown] = useState(false);
 
   useEffect(() => {
     initializePage();
@@ -57,11 +59,75 @@ export default function AdminProducts() {
     window.addEventListener('online', handleOnlineStatusChange);
     window.addEventListener('offline', handleOnlineStatusChange);
     
+    // إضافة مستمع لأحداث التخزين
+    window.addEventListener('customStorageChange', handleStorageChange);
+    
+    // إضافة تذكير للمزامنة بعد دقائق معينة
+    const intervalId = setInterval(() => {
+      checkAndSyncIfNeeded();
+    }, 60000 * 5); // كل 5 دقائق
+    
     return () => {
       window.removeEventListener('online', handleOnlineStatusChange);
       window.removeEventListener('offline', handleOnlineStatusChange);
+      window.removeEventListener('customStorageChange', handleStorageChange);
+      clearInterval(intervalId);
     };
   }, []);
+  
+  // دالة للتحقق والمزامنة عند الحاجة
+  const checkAndSyncIfNeeded = () => {
+    // لا نزامن إذا كان هناك عملية مزامنة حالية
+    if (isSyncing || syncCooldown) {
+      return;
+    }
+    
+    // لا نزامن إذا لم يكن هناك اتصال بالإنترنت
+    if (!isOnline()) {
+      return;
+    }
+    
+    // التحقق من وقت آخر مزامنة
+    const now = Date.now();
+    const minSyncInterval = 60000 * 5; // 5 دقائق
+    
+    // إذا كان آخر مزامنة منذ أقل من 5 دقائق، نتخطى المزامنة
+    if (lastSyncTime && (now - lastSyncTime < minSyncInterval)) {
+      return;
+    }
+    
+    console.log('محاولة مزامنة تلقائية...');
+    forceRefreshFromServer()
+      .then(serverProducts => {
+        if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
+          // تحديث وقت آخر مزامنة
+          setLastSyncTime(Date.now());
+          
+          // مقارنة عدد المنتجات
+          const storedCount = products.length;
+          const serverCount = serverProducts.length;
+          
+          // إذا كان هناك اختلاف في العدد أو آخر مزامنة منذ أكثر من 15 دقيقة
+          if (storedCount !== serverCount || !lastSyncTime || (now - lastSyncTime) > 60000 * 15) {
+            console.log(`تم اكتشاف تغيير في البيانات (محلياً: ${storedCount}، السيرفر: ${serverCount})`);
+            
+            // تحديث واجهة المستخدم والتخزين المحلي
+            setProducts(serverProducts as Product[]);
+            saveData('products', serverProducts);
+            localStorage.setItem('products', JSON.stringify(serverProducts));
+            
+            setNotification({
+              message: 'تم تحديث البيانات من السيرفر تلقائياً',
+              type: 'info'
+            });
+            setTimeout(() => setNotification(null), 3000);
+          }
+        }
+      })
+      .catch(error => {
+        console.error('خطأ في المزامنة التلقائية:', error);
+      });
+  };
 
   // دالة لتهيئة الصفحة وإعداد جداول قاعدة البيانات
   const initializePage = async () => {
@@ -89,47 +155,8 @@ export default function AdminProducts() {
       await loadProductsData();
       await loadCategoriesData();
       
-      // إضافة مستمع لأحداث التخزين لتحديث واجهة المستخدم عند تغيير البيانات
-      window.addEventListener('customStorageChange', handleStorageChange);
-      
-      // إضافة مستمع لإعادة تحميل البيانات كل دقيقة إذا كان هناك اتصال بالإنترنت
-      // هذا سيساعد في مزامنة البيانات بين الأجهزة المختلفة
-      const intervalId = setInterval(() => {
-        if (isOnline()) {
-          console.log('محاولة مزامنة البيانات من السيرفر...');
-          forceRefreshFromServer()
-            .then(serverProducts => {
-              if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
-                // مقارنة عدد المنتجات
-                const storedCount = products.length;
-                const serverCount = serverProducts.length;
-                
-                if (storedCount !== serverCount) {
-                  console.log(`تم اكتشاف تغيير في البيانات (محلياً: ${storedCount}، السيرفر: ${serverCount})`);
-                  
-                  // تحديث واجهة المستخدم والتخزين المحلي
-                  setProducts(serverProducts as Product[]);
-                  saveData('products', serverProducts);
-                  localStorage.setItem('products', JSON.stringify(serverProducts));
-                  
-                  setNotification({
-                    message: 'تم تحديث البيانات من السيرفر تلقائياً',
-                    type: 'info'
-                  });
-                  setTimeout(() => setNotification(null), 3000);
-                }
-              }
-            })
-            .catch(error => {
-              console.error('خطأ في المزامنة التلقائية:', error);
-            });
-        }
-      }, 60000); // كل دقيقة
-      
-      return () => {
-        clearInterval(intervalId);
-        window.removeEventListener('customStorageChange', handleStorageChange);
-      };
+      // تعيين وقت آخر مزامنة
+      setLastSyncTime(Date.now());
     } catch (error) {
       console.error('خطأ في تهيئة الصفحة:', error);
     } finally {
@@ -145,8 +172,14 @@ export default function AdminProducts() {
         message: 'تم استعادة الاتصال بالإنترنت. جاري مزامنة البيانات...',
         type: 'success'
       });
-      // محاولة مزامنة البيانات عند عودة الاتصال
-      syncProductsAndUpdate(true);
+      
+      // نمنع المزامنة المتكررة
+      if (!isSyncing && !syncCooldown) {
+        // محاولة مزامنة البيانات عند عودة الاتصال
+        setTimeout(() => {
+          syncProductsAndUpdate(false);
+        }, 1500); // ننتظر قليلاً قبل المزامنة
+      }
     } else {
       console.log('تم فقد الاتصال بالإنترنت. سيتم استخدام البيانات المحلية فقط.');
       setNotification({
@@ -338,6 +371,31 @@ export default function AdminProducts() {
 
   // دالة المزامنة مع السيرفر وتحديث الواجهة
   const syncProductsAndUpdate = async (showNotification = false) => {
+    // وقت النتظار بين عمليات المزامنة (3 ثوان)
+    const SYNC_COOLDOWN_TIME = 3000; // 3 ثوان
+    
+    // التحقق إذا كان هناك عملية مزامنة حالية
+    if (isSyncing) {
+      console.log('هناك عملية مزامنة جارية بالفعل، يرجى الانتظار...');
+      setNotification({
+        message: 'هناك عملية مزامنة جارية بالفعل، يرجى الانتظار...',
+        type: 'info'
+      });
+      setTimeout(() => setNotification(null), 2000);
+      return;
+    }
+    
+    // التحقق من وقت الانتظار بين عمليات المزامنة
+    if (syncCooldown) {
+      console.log('تم طلب المزامنة مؤخراً، يرجى الانتظار...');
+      setNotification({
+        message: 'يرجى الانتظار قليلاً بين عمليات المزامنة',
+        type: 'info'
+      });
+      setTimeout(() => setNotification(null), 2000);
+      return;
+    }
+    
     if (!isOnline()) {
       console.log('لا يوجد اتصال بالإنترنت. تم تخطي المزامنة.');
       setNotification({
@@ -348,7 +406,9 @@ export default function AdminProducts() {
       return;
     }
     
+    // تعيين حالة المزامنة والوقت الفاصل
     setIsSyncing(true);
+    setSyncCooldown(true);
     
     try {
       // بدلاً من استخدام syncProductsFromSupabase، نستخدم resetAndSyncProducts
@@ -356,6 +416,9 @@ export default function AdminProducts() {
       console.log('استخدام إعادة ضبط ومزامنة المنتجات لحل مشكلة بنية الجدول...');
       
       const serverProducts = await resetAndSyncProducts(products);
+      
+      // تحديث وقت آخر مزامنة
+      setLastSyncTime(Date.now());
       
       if (serverProducts) {
         // فحص نوع البيانات المرجعة - إما مصفوفة أو كائن
@@ -412,6 +475,11 @@ export default function AdminProducts() {
       setTimeout(() => setNotification(null), 8000);
     } finally {
       setIsSyncing(false);
+      
+      // إعادة تعيين حالة المزامنة بعد وقت الانتظار
+      setTimeout(() => {
+        setSyncCooldown(false);
+      }, SYNC_COOLDOWN_TIME);
     }
   };
 
@@ -805,6 +873,26 @@ export default function AdminProducts() {
 
   // دالة لمزامنة البيانات مع السيرفر
   const handleSyncWithServer = async () => {
+    // التحقق من وقت الانتظار بين عمليات المزامنة
+    if (syncCooldown) {
+      setNotification({
+        message: 'يرجى الانتظار قليلاً بين عمليات المزامنة',
+        type: 'info'
+      });
+      setTimeout(() => setNotification(null), 2000);
+      return;
+    }
+    
+    // التحقق إذا كان هناك عملية مزامنة حالية
+    if (isSyncing) {
+      setNotification({
+        message: 'هناك عملية مزامنة جارية بالفعل...',
+        type: 'info'
+      });
+      setTimeout(() => setNotification(null), 2000);
+      return;
+    }
+    
     if (!isOnline()) {
       setNotification({
         message: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال أولاً.',
