@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getCategories } from '@/lib/data';
 import { useEffect, useState } from 'react';
-import { Category } from '@/lib/data';
+import { Category } from '@/types';
 
 interface CategoryListProps {
   showAll?: boolean;
