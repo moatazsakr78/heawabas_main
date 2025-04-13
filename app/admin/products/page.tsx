@@ -462,20 +462,49 @@ export default function AdminProducts() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteProduct = (id: string) => {
-    // تأكد من وجود window قبل استخدام confirm
-    if (typeof window !== 'undefined' && window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-      const newProducts = products.filter((product) => product.id !== id);
-      saveProducts(newProducts);
+  // وظيفة مساعدة للمزامنة مع السيرفر
+  const syncWithServerAfterChanges = async (productsToSync: Product[]) => {
+    if (isOnline()) {
+      setIsSyncing(true);
+      try {
+        console.log('جاري مزامنة التغييرات مع السيرفر...');
+        const result = await saveProductsToSupabase(productsToSync);
+        if (typeof result === 'boolean' && result) {
+          console.log('تم مزامنة التغييرات مع السيرفر بنجاح');
+          setNotification({
+            message: 'تم مزامنة التغييرات مع السيرفر بنجاح',
+            type: 'success'
+          });
+        } else if (typeof result === 'object') {
+          console.log('نتيجة المزامنة:', result.message);
+          if (!result.success) {
+            setNotification({
+              message: `تم الحفظ محلياً فقط: ${result.message}`,
+              type: 'warning'
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error('خطأ في مزامنة التغييرات مع السيرفر:', error);
+        setNotification({
+          message: `فشل في مزامنة التغييرات: ${error.message || 'خطأ غير معروف'}`,
+          type: 'error'
+        });
+      } finally {
+        setIsSyncing(false);
+        setTimeout(() => setNotification(null), 3000);
+      }
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    let updatedProducts: Product[] = [];
     
     if (currentProduct) {
       // تحديث منتج موجود
-      const updatedProducts = products.map((prod) =>
+      updatedProducts = products.map((prod) =>
         prod.id === currentProduct.id
           ? {
               ...prod,
@@ -487,10 +516,10 @@ export default function AdminProducts() {
               boxPrice: parseFloat(formData.boxPrice),
               imageUrl: formData.imageUrl,
               isNew: formData.isNew,
+              updated_at: new Date().toISOString(),
             }
           : prod
       );
-      saveProducts(updatedProducts);
     } else {
       // إضافة منتج جديد
       const newProduct = {
@@ -504,10 +533,29 @@ export default function AdminProducts() {
         imageUrl: formData.imageUrl,
         isNew: formData.isNew,
         createdAt: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
-      saveProducts([...products, newProduct]);
+      updatedProducts = [...products, newProduct];
     }
+    
+    await saveProducts(updatedProducts);
+    
+    // مزامنة التغييرات مع السيرفر
+    await syncWithServerAfterChanges(updatedProducts);
+    
     setIsModalOpen(false);
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    // تأكد من وجود window قبل استخدام confirm
+    if (typeof window !== 'undefined' && window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+      const newProducts = products.filter((product) => product.id !== id);
+      await saveProducts(newProducts);
+      
+      // قم بمزامنة التغييرات مع السيرفر مباشرة
+      await syncWithServerAfterChanges(newProducts);
+    }
   };
 
   // نظام وهمي لرفع الصور - في مشروع حقيقي سيتم استخدام خدمة تخزين سحابي
@@ -528,7 +576,7 @@ export default function AdminProducts() {
     }
   };
 
-  const handleUpdateProduct = () => {
+  const handleUpdateProduct = async () => {
     setIsLoading(true);
     
     try {
@@ -571,18 +619,25 @@ export default function AdminProducts() {
         boxPrice: boxPrice,
       };
 
+      let updatedProducts: Product[] = [];
+      
       if (currentProduct) {
         // تحديث منتج موجود
-        const updatedProducts = products.map((prod) =>
+        updatedProducts = products.map((prod) =>
           prod.id === currentProduct.id
             ? updatedProduct
             : prod
         );
-        saveProducts(updatedProducts);
       } else {
         // إضافة منتج جديد
-        saveProducts([...products, updatedProduct]);
+        updatedProducts = [...products, updatedProduct];
       }
+      
+      await saveProducts(updatedProducts);
+      
+      // مزامنة التغييرات مع السيرفر
+      await syncWithServerAfterChanges(updatedProducts);
+      
       setIsModalOpen(false);
       setIsLoading(false);
     } catch (error: any) {
