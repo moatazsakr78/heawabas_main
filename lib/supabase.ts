@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 // رابط الوصول إلى قاعدة البيانات
-const SUPABASE_URL = 'https://vcwosfhhfktmtwqwkwzd.supabase.co';
+const SUPABASE_URL = 'https://xuchmfujikkosqtlmsnt.supabase.co';
 // مفتاح الوصول العام (ليس سراً - فقط يسمح بالقراءة والكتابة في جداول محددة)
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjd29zZmhoZmt0bXR3cXdrd3pkIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODA0NTY5NzUsImV4cCI6MTk5NTk4Mjk3NX0.xmdpAvA7SRyfyx9VcfZCkgFJCiD5f4TGgOeYqIAqvTE';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1Y2htZnVqaWtrb3NxdGxtc250Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ0NzM2ODEsImV4cCI6MjA2MDA0OTY4MX0.T6vlaQDbJk15K0739PRdU1GOyxTW86fOMZ_Ev_9UT90';
 
 // إنشاء عميل Supabase
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -211,12 +211,12 @@ export async function syncProductsFromSupabase(force = false) {
         await supabase.from('products').delete().not('id', 'is', null);
         
         // تنظيف البيانات
-        const uniqueProducts = localData.filter((p, index, self) => 
-          index === self.findIndex(t => t.id === p.id)
+        const uniqueProducts = localData.filter((p: any, index: number, self: any[]) => 
+          index === self.findIndex((t: any) => t.id === p.id)
         );
         
         // تأكد من أن جميع البيانات بالتنسيق الصحيح
-        const formattedProducts = uniqueProducts.map(product => ({
+        const formattedProducts = uniqueProducts.map((product: any) => ({
           ...product,
           createdAt: product.createdAt instanceof Date ? product.createdAt.toISOString() : product.createdAt
         }));
