@@ -179,9 +179,40 @@ export default function ProductGrid({
         console.log('Connection restored. Syncing data...');
         // محاولة مزامنة البيانات عند عودة الاتصال
         try {
-          forceRefreshFromServer().then(() => {
-            loadProductsData();
-          });
+          // استخدام await بداخل دالة async فورية للتعامل مع الوعد بشكل صحيح
+          (async () => {
+            try {
+              const serverData = await forceRefreshFromServer();
+              if (serverData && serverData.length > 0) {
+                console.log('تم تحديث البيانات بنجاح من السيرفر:', serverData.length);
+                // تحديث المنتجات مباشرة بدلاً من إعادة تحميلها
+                const filteredProducts = serverData.filter(p => p !== null) as Product[];
+                
+                // تطبيق نفس المرشحات للعرض
+                let displayProducts = filteredProducts;
+                
+                if (filterByCategory) {
+                  displayProducts = displayProducts.filter((product: Product) => 
+                    product.categoryId && String(product.categoryId) === String(filterByCategory)
+                  );
+                }
+                
+                if (limit && limit > 0) {
+                  displayProducts = displayProducts.slice(0, limit);
+                }
+                
+                setProducts(displayProducts);
+                setShowSyncMessage(true);
+                setTimeout(() => setShowSyncMessage(false), 3000);
+              } else {
+                console.log('لم يتم العثور على بيانات في السيرفر، استخدام البيانات المحلية');
+                loadProductsData();
+              }
+            } catch (error) {
+              console.error('حدث خطأ أثناء تحديث البيانات من السيرفر:', error);
+              loadProductsData();
+            }
+          })();
         } catch (error) {
           console.error('Error syncing data on connection restore:', error);
           loadProductsData();

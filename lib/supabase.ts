@@ -1,15 +1,48 @@
 import { createClient } from '@supabase/supabase-js';
+import { Product } from '@/types';
+import { saveData } from './localStorage';
 
-// رابط الوصول إلى قاعدة البيانات
-const SUPABASE_URL = 'https://xuchmfujikkosqtlmsnt.supabase.co';
-// مفتاح الوصول العام (ليس سراً - فقط يسمح بالقراءة والكتابة في جداول محددة)
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1Y2htZnVqaWtrb3NxdGxtc250Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ0NzM2ODEsImV4cCI6MjA2MDA0OTY4MX0.T6vlaQDbJk15K0739PRdU1GOyxTW86fOMZ_Ev_9UT90';
+// إعدادات Supabase من متغيرات البيئة أو القيم الثابتة
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://yzdhtfmtaznscbxfykxy.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZGh0Zm10YXpuc2NieGZ5a3h5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTcxNTMzNzgsImV4cCI6MjAzMjcyOTM3OH0.Wbn1KGfCSYjNtvYSyDpjMDhHUw9E5iA-6YK2Qe16ZyY';
+
+// إعداد خيارات العميل
+const supabaseOptions = {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'HeaWaBas Web App',
+    },
+  },
+  // تعيين مهلة للطلبات
+  fetch: (url: RequestInfo, options?: RequestInit) => {
+    return fetch(url, {
+      ...options,
+      signal: options?.signal || AbortSignal.timeout(30000), // مهلة 30 ثانية
+    });
+  },
+};
 
 // إنشاء عميل Supabase
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = createClient(supabaseUrl, supabaseKey, supabaseOptions);
 
 // متغير عام للإشارة إلى آخر تحديث
 let lastSyncTimestamp = 0;
+// عند تهيئة التطبيق، نحاول استرجاع آخر وقت مزامنة من التخزين
+if (typeof window !== 'undefined') {
+  try {
+    const savedTimestamp = localStorage.getItem('lastSyncTimestamp');
+    if (savedTimestamp) {
+      lastSyncTimestamp = parseInt(savedTimestamp, 10);
+    }
+  } catch (e) {
+    console.error('خطأ في تحميل طابع المزامنة الزمني:', e);
+  }
+}
 
 // دالة مساعدة لتحويل أسماء الحقول من صيغة الشرطة السفلية إلى الحالة الجملية
 function mapDatabaseToAppModel(product: any) {
@@ -110,6 +143,22 @@ export async function saveProductsToSupabase(products: any[]) {
     
     // تحويل البيانات المسترجعة إلى نموذج التطبيق
     const appModels = data ? data.map(mapDatabaseToAppModel) : [];
+    
+    // إعلام التطبيق بالتغييرات بضمان التنفيذ بعد الحفظ
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        try {
+          window.dispatchEvent(new Event('storage'));
+          window.dispatchEvent(new CustomEvent('customStorageChange', { 
+            detail: { type: 'products', timestamp: Date.now(), source: 'server' }
+          }));
+          console.log('تم إرسال إشعارات حفظ البيانات بنجاح');
+        } catch (e) {
+          console.error('خطأ أثناء إرسال إشعارات حفظ البيانات:', e);
+        }
+      }
+    }, 100);
+    
     return appModels;
   } catch (error) {
     console.error('خطأ في saveProductsToSupabase:', error);
@@ -342,7 +391,7 @@ export async function forceRefreshFromServer() {
     // تحديث البيانات المحلية
     localStorage.setItem('products', JSON.stringify(appModels));
     try {
-      saveData('products', appModels);
+      await saveData('products', appModels);
     } catch (e) {
       console.error('خطأ في حفظ البيانات في التخزين الدائم:', e);
     }
@@ -351,13 +400,20 @@ export async function forceRefreshFromServer() {
     lastSyncTimestamp = Date.now();
     localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
     
-    // إعلام التطبيق بالتغييرات
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('storage'));
-      window.dispatchEvent(new CustomEvent('customStorageChange', { 
-        detail: { type: 'products', timestamp: Date.now(), source: 'server' }
-      }));
-    }
+    // إعلام التطبيق بالتغييرات بضمان التنفيذ بعد التخزين
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        try {
+          window.dispatchEvent(new Event('storage'));
+          window.dispatchEvent(new CustomEvent('customStorageChange', { 
+            detail: { type: 'products', timestamp: Date.now(), source: 'server' }
+          }));
+          console.log('تم إرسال إشعارات تحديث البيانات بنجاح');
+        } catch (e) {
+          console.error('خطأ أثناء إرسال إشعارات تحديث البيانات:', e);
+        }
+      }
+    }, 100);
     
     return appModels;
   } catch (error) {
@@ -369,52 +425,4 @@ export async function forceRefreshFromServer() {
 // وظيفة للتحقق من الاتصال بالإنترنت
 export function isOnline(): boolean {
   return typeof navigator !== 'undefined' && navigator.onLine;
-}
-
-// دالة مساعدة لحفظ البيانات في التخزين الدائم
-export async function saveData(key: string, value: any) {
-  if (typeof window === 'undefined') return;
-  
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    
-    if (typeof indexedDB !== 'undefined') {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open('HeaWaBas_Storage', 1);
-        
-        request.onupgradeneeded = function(event) {
-          const db = (event.target as IDBOpenDBRequest).result;
-          if (!db.objectStoreNames.contains('data_store')) {
-            db.createObjectStore('data_store', { keyPath: 'key' });
-          }
-        };
-        
-        request.onsuccess = function(event) {
-          try {
-            const db = (event.target as IDBOpenDBRequest).result;
-            const transaction = db.transaction(['data_store'], 'readwrite');
-            const store = transaction.objectStore('data_store');
-            
-            const storeRequest = store.put({ key, value });
-            
-            storeRequest.onsuccess = function() {
-              resolve(true);
-            };
-            
-            storeRequest.onerror = function(e) {
-              reject(e);
-            };
-          } catch (error) {
-            reject(error);
-          }
-        };
-        
-        request.onerror = function(event) {
-          reject(event);
-        };
-      });
-    }
-  } catch (error) {
-    console.error(`Error saving data for key ${key}:`, error);
-  }
 } 

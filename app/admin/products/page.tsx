@@ -247,6 +247,7 @@ export default function AdminProducts() {
   const syncProductsAndUpdate = async (showNotification = false) => {
     try {
       setIsLoading(true);
+      setIsSyncing(true); // إضافة مؤشر المزامنة النشطة
       
       if (isOnline()) {
         console.log("جاري المزامنة مع السيرفر...");
@@ -261,6 +262,15 @@ export default function AdminProducts() {
         if (serverProducts) {
           setProducts(serverProducts.filter(Boolean) as Product[]);
           console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
+          
+          // التأكد من تحديث البيانات المحلية أيضاً
+          localStorage.setItem('products', JSON.stringify(serverProducts));
+          try {
+            await saveData('products', serverProducts);
+          } catch (e) {
+            console.error('خطأ في حفظ البيانات محلياً:', e);
+          }
+          
           if (showNotification) {
             setNotification({
               message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
@@ -268,13 +278,28 @@ export default function AdminProducts() {
             });
           }
         } else {
-          saveProducts(products);
-          console.log("لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية");
-          if (showNotification) {
-            setNotification({
-              message: "لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية",
-              type: "warning"
-            });
+          // إذا لم تكن هناك بيانات على السيرفر، نحاول رفع البيانات المحلية
+          console.log("لم يتم العثور على منتجات في السيرفر، جاري رفع البيانات المحلية");
+          
+          if (products.length > 0) {
+            const updatedProducts = await saveProductsToSupabase(products);
+            if (updatedProducts && updatedProducts.length > 0) {
+              setProducts(updatedProducts.filter(Boolean) as Product[]);
+              
+              if (showNotification) {
+                setNotification({
+                  message: `تم رفع ${updatedProducts.length} منتج إلى السيرفر بنجاح`,
+                  type: "success"
+                });
+              }
+            }
+          } else {
+            if (showNotification) {
+              setNotification({
+                message: "لم يتم العثور على منتجات في السيرفر، تم حفظ المنتجات المحلية",
+                type: "warning"
+              });
+            }
           }
         }
       } else {
@@ -296,6 +321,12 @@ export default function AdminProducts() {
       }
     } finally {
       setIsLoading(false);
+      setIsSyncing(false); // إنهاء حالة المزامنة النشطة
+      
+      // تأخير إزالة الإشعارات لضمان رؤيتها
+      if (showNotification) {
+        setTimeout(() => setNotification(null), 3000);
+      }
     }
   };
 
