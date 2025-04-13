@@ -11,3 +11,11 @@ export interface Product {
   createdAt?: string;
   categoryId?: string;
 }
+
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  image?: string;
+  description?: string;
+}

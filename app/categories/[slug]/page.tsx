@@ -3,7 +3,7 @@
 import ProductGrid from '@/components/products/ProductGrid';
 import { getCategoryBySlug, createSlug } from '@/lib/data';
 import { useEffect, useState } from 'react';
-import { Category } from '@/lib/data';
+import { Category } from '@/types';
 import { loadData } from '@/lib/localStorage';
 
 type Props = {
