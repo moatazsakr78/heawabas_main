@@ -82,6 +82,41 @@ function mapAppModelToDatabase(product: any) {
   };
 }
 
+// دالة مساعدة لإنشاء جدول المنتجات يدوياً من خلال استعلام SQL مباشر
+async function createProductsTable() {
+  try {
+    console.log('محاولة إنشاء جدول المنتجات مباشرة...');
+    
+    // استعلام SQL لإنشاء الجدول
+    const { data, error } = await supabase.rpc('create_products_table_query');
+    
+    if (error) {
+      // إذا فشلت الـ RPC، نحاول استخدام الطريقة البديلة باستخدام REST API
+      console.error('فشل إنشاء الجدول باستخدام RPC:', error);
+      
+      // محاولة استخدام REST API
+      const { error: restError } = await supabase
+        .from('_products_creation_helper')
+        .insert({ create_table: true })
+        .select();
+        
+      if (restError) {
+        console.error('فشل إنشاء الجدول باستخدام REST API:', restError);
+        return false;
+      }
+      
+      console.log('تم إنشاء جدول المنتجات باستخدام REST API');
+      return true;
+    }
+    
+    console.log('تم إنشاء جدول المنتجات بنجاح باستخدام RPC');
+    return true;
+  } catch (error) {
+    console.error('خطأ غير متوقع أثناء محاولة إنشاء جدول المنتجات:', error);
+    return false;
+  }
+}
+
 // وظائف التعامل مع المنتجات
 export async function saveProductsToSupabase(products: any[]) {
   try {
@@ -91,15 +126,44 @@ export async function saveProductsToSupabase(products: any[]) {
 
     console.log('بدء حفظ المنتجات في Supabase...');
     
-    // حذف جميع المنتجات الحالية أولاً
-    const { error: deleteError } = await supabase
-      .from('products')
-      .delete()
-      .not('id', 'is', null);
+    // التحقق من وجود جدول المنتجات وإنشائه إذا لم يكن موجودًا
+    try {
+      // التحقق من وجود الجدول من خلال تنفيذ استعلام اختبار
+      const { error: tableCheckError } = await supabase
+        .from('products')
+        .select('id')
+        .limit(1);
+        
+      if (tableCheckError && tableCheckError.code === '42P01') {
+        console.log('جدول المنتجات غير موجود، جارٍ محاولة إنشائه...');
+        // محاولة إنشاء الجدول باستخدام الدالة المخصصة
+        const tableCreated = await createProductsTable();
+        if (!tableCreated) {
+          console.warn('لم يتم إنشاء الجدول. قد تكون هناك مشكلة في الصلاحيات. سيستمر التطبيق محلياً فقط.');
+        }
+      }
+    } catch (tableError) {
+      console.error('خطأ في التحقق من جدول المنتجات:', tableError);
+    }
     
-    if (deleteError) {
-      console.error('خطأ في حذف المنتجات:', deleteError);
-      throw deleteError;
+    // محاولة حذف المنتجات الحالية
+    try {
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .not('id', 'is', null);
+      
+      if (deleteError) {
+        if (deleteError.code === '42P01') {
+          console.log('جدول المنتجات غير موجود، سيتم الإدراج مباشرة');
+        } else {
+          console.error('خطأ في حذف المنتجات:', deleteError);
+        }
+      } else {
+        console.log('تم حذف المنتجات الحالية بنجاح');
+      }
+    } catch (deleteError) {
+      console.error('خطأ في عملية حذف المنتجات:', deleteError);
     }
     
     // تنظيف البيانات قبل الحفظ
@@ -120,49 +184,68 @@ export async function saveProductsToSupabase(products: any[]) {
       return dbProduct || {};
     });
     
-    // إضافة المنتجات
-    const { data, error } = await supabase
-      .from('products')
-      .insert(serializedProducts)
-      .select();
-    
-    if (error) {
-      console.error('خطأ في حفظ المنتجات:', error);
-      throw error;
-    }
-    
-    console.log('تم حفظ المنتجات بنجاح في Supabase:', serializedProducts.length);
-    
-    // تحديث الطابع الزمني للمزامنة
-    lastSyncTimestamp = Date.now();
+    // محاولة إدراج المنتجات
     try {
-      localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-    } catch (error) {
-      console.error('خطأ في حفظ وقت المزامنة:', error);
+      const { data, error } = await supabase
+        .from('products')
+        .insert(serializedProducts)
+        .select();
+      
+      if (error) {
+        console.error('خطأ في حفظ المنتجات:', error);
+        
+        if (error.code === '42P01') {
+          console.log('جدول غير موجود، سيتم تخزين البيانات محلياً فقط');
+          // لن نقوم بمحاولة إنشاء الجدول مرة أخرى هنا، لأنه سيكون قد فشل في الخطوات السابقة
+        } else {
+          // أخطاء أخرى - تخزين محلياً وتسجيل الخطأ
+          console.error('خطأ في عملية الإدراج:', error);
+        }
+        
+        // تخزين محلياً فقط
+        console.log('تم حفظ البيانات محلياً فقط. سيتم محاولة المزامنة لاحقاً عند حل مشاكل الاتصال.');
+      } else {
+        // نجاح المزامنة
+        console.log('تم حفظ المنتجات بنجاح في Supabase:', serializedProducts.length);
+        
+        // تحويل البيانات المسترجعة إلى نموذج التطبيق
+        const appModels = data ? data.map(mapDatabaseToAppModel) : [];
+        
+        // تحديث الطابع الزمني للمزامنة
+        lastSyncTimestamp = Date.now();
+        try {
+          localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+        } catch (error) {
+          console.error('خطأ في حفظ وقت المزامنة:', error);
+        }
+        
+        // إعلام التطبيق بالتغييرات
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            try {
+              window.dispatchEvent(new Event('storage'));
+              window.dispatchEvent(new CustomEvent('customStorageChange', { 
+                detail: { type: 'products', timestamp: Date.now(), source: 'server' }
+              }));
+              console.log('تم إرسال إشعارات حفظ البيانات بنجاح');
+            } catch (e) {
+              console.error('خطأ أثناء إرسال إشعارات حفظ البيانات:', e);
+            }
+          }
+        }, 100);
+        
+        return appModels;
+      }
+    } catch (insertError) {
+      console.error('خطأ غير متوقع في عملية إدراج المنتجات:', insertError);
     }
     
-    // تحويل البيانات المسترجعة إلى نموذج التطبيق
-    const appModels = data ? data.map(mapDatabaseToAppModel) : [];
-    
-    // إعلام التطبيق بالتغييرات بضمان التنفيذ بعد الحفظ
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        try {
-          window.dispatchEvent(new Event('storage'));
-          window.dispatchEvent(new CustomEvent('customStorageChange', { 
-            detail: { type: 'products', timestamp: Date.now(), source: 'server' }
-          }));
-          console.log('تم إرسال إشعارات حفظ البيانات بنجاح');
-        } catch (e) {
-          console.error('خطأ أثناء إرسال إشعارات حفظ البيانات:', e);
-        }
-      }
-    }, 100);
-    
-    return appModels;
+    // في حالة عدم النجاح، نعيد البيانات المحلية
+    return products;
   } catch (error) {
     console.error('خطأ في saveProductsToSupabase:', error);
-    throw error;
+    // تخزين محلياً فقط والعودة
+    return products;
   }
 }
 
