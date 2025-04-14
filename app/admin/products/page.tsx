@@ -700,7 +700,7 @@ export default function AdminProducts() {
           console.log('تم مزامنة الحذف مع السيرفر بنجاح، عدد المنتجات الحالي:', syncResult.length);
           
           // تحديث المنتجات في الحالة بالبيانات المرجعة من السيرفر
-          setProducts(syncResult);
+          setProducts(syncResult as Product[]);
           // تحديث التخزين المحلي أيضاً
           saveData('products', syncResult);
           localStorage.setItem('products', JSON.stringify(syncResult));
