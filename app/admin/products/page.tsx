@@ -408,7 +408,7 @@ export default function AdminProducts() {
           if (showNotification) {
             setNotification({
               message: serverProducts.message,
-              type: serverProducts.success ? "success" : "warning"
+              type: 'message' in serverProducts && 'success' in serverProducts && serverProducts.success ? "success" : "warning"
             });
             setTimeout(() => setNotification(null), 5000);
           }
@@ -473,7 +473,7 @@ export default function AdminProducts() {
           saveData('products', result);
           localStorage.setItem('products', JSON.stringify(result));
         } else if (typeof result === 'object') {
-          if (result.success) {
+          if ('success' in result && result.success) {
             syncSuccess = true;
             console.log('تمت مزامنة المنتجات مع السيرفر بنجاح:', result.message);
           } else {
@@ -596,7 +596,7 @@ export default function AdminProducts() {
           });
         } else if (typeof result === 'object') {
           console.log('نتيجة المزامنة:', result.message);
-          if (!result.success) {
+          if ('success' in result && !result.success) {
             setNotification({
               message: `تم الحفظ محلياً فقط: ${result.message}`,
               type: 'warning'
@@ -710,7 +710,7 @@ export default function AdminProducts() {
             message: `تم حذف المنتج "${productName}" ومزامنة التغييرات بنجاح`,
             type: 'success'
           });
-        } else if (typeof syncResult === 'object' && !syncResult.success) {
+        } else if (typeof syncResult === 'object' && 'success' in syncResult && !syncResult.success) {
           console.warn('تم الحذف محلياً ولكن حدثت مشكلة في المزامنة:', syncResult.message);
           setNotification({
             message: `تم حذف المنتج محلياً فقط: ${syncResult.message}`,
