@@ -47,8 +47,14 @@ export default function ProductGrid({
             
             if (serverProducts && serverProducts.length > 0) {
               console.log('Successfully loaded products from server:', serverProducts.length);
-              // تصفية القيم الفارغة لضمان توافق النوع مع Product[]
-              productData = serverProducts.filter(product => product !== null) as Product[];
+              // تصفية القيم الفارغة وإضافة الخصائص المطلوبة للتوافق مع النوع Product[]
+              productData = serverProducts
+                .filter(product => product !== null)
+                .map(product => ({
+                  ...product,
+                  packPrice: product.piecePrice * 6, // مثال: علبة تحتوي على 6 قطع
+                  boxPrice: product.piecePrice * product.boxQuantity
+                })) as Product[];
               
               // تحديث البيانات المحلية
               localStorage.setItem('products', JSON.stringify(serverProducts));
@@ -71,7 +77,12 @@ export default function ProductGrid({
           
           if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
             console.log('Loaded products from persistent storage:', savedProducts.length);
-            productData = savedProducts;
+            // إضافة خصائص packPrice و boxPrice إذا لم تكن موجودة
+            productData = savedProducts.map((product: any) => ({
+              ...product,
+              packPrice: product.packPrice || product.piecePrice * 6,
+              boxPrice: product.boxPrice || product.piecePrice * product.boxQuantity
+            }));
           } else {
             // احتياطياً، نحاول من localStorage العادي
             try {
@@ -80,7 +91,12 @@ export default function ProductGrid({
                 const parsedProducts = JSON.parse(productsFromLS);
                 if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
                   console.log('Loaded products from localStorage:', parsedProducts.length);
-                  productData = parsedProducts;
+                  // إضافة خصائص packPrice و boxPrice إذا لم تكن موجودة
+                  productData = parsedProducts.map((product: any) => ({
+                    ...product,
+                    packPrice: product.packPrice || product.piecePrice * 6,
+                    boxPrice: product.boxPrice || product.piecePrice * product.boxQuantity
+                  }));
                 }
               }
             } catch (error) {
@@ -187,7 +203,13 @@ export default function ProductGrid({
               if (serverData && serverData.length > 0) {
                 console.log('تم تحديث البيانات بنجاح من السيرفر:', serverData.length);
                 // تحديث المنتجات مباشرة بدلاً من إعادة تحميلها
-                const filteredProducts = serverData.filter(p => p !== null) as Product[];
+                const filteredProducts = serverData
+                  .filter(p => p !== null)
+                  .map(product => ({
+                    ...product,
+                    packPrice: product.piecePrice * 6,
+                    boxPrice: product.piecePrice * product.boxQuantity
+                  })) as Product[];
                 
                 // تطبيق نفس المرشحات للعرض
                 let displayProducts = filteredProducts;
