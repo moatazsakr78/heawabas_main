@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/components/ui/use-toast';
-import { Product, Category } from '@/types';
+import { Category as CategoryType } from '@/types';
 import { Plus, Trash, Edit, Save } from 'lucide-react';
 
 // تعريف نوع Category هنا بدلاً من استيراده
