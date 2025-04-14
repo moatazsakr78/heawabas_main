@@ -38,7 +38,13 @@ export default function ProductPage() {
               
               if (foundProduct) {
                 console.log('Found product on server:', foundProduct.name);
-                setProduct(foundProduct);
+                // إضافة الخصائص المفقودة أو تعديل نوع البيانات
+                const fullProduct: Product = {
+                  ...foundProduct,
+                  packPrice: foundProduct.piecePrice * 6, // مثال: علبة تحتوي على 6 قطع
+                  boxPrice: foundProduct.piecePrice * foundProduct.boxQuantity // سعر الكرتون
+                };
+                setProduct(fullProduct);
                 
                 // تحديث التخزين المحلي
                 localStorage.setItem('products', JSON.stringify(serverProducts));
@@ -90,7 +96,13 @@ export default function ProductPage() {
           
           if (foundProduct) {
             console.log('Found product in local storage:', foundProduct.name);
-            setProduct(foundProduct);
+            // إضافة الخصائص المفقودة إذا لم تكن موجودة
+            const fullProduct: Product = {
+              ...foundProduct,
+              packPrice: foundProduct.packPrice || foundProduct.piecePrice * 6,
+              boxPrice: foundProduct.boxPrice || foundProduct.piecePrice * foundProduct.boxQuantity
+            };
+            setProduct(fullProduct);
           } else {
             console.log('Product not found locally. ID:', params.id);
             setProduct(null);
