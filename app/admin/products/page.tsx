@@ -1,10 +1,25 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw, FiTool } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
 import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable, resetAndSyncProducts } from '@/lib/supabase';
+import { Button } from '@/components/ui/button';
+import { RefreshCw, Database } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectTrigger, SelectValue, SelectItem } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { toast } from '@/components/ui/use-toast';
+import { Product, Category } from '@/types';
+import { Plus, Trash, Edit, Save } from 'lucide-react';
 
 // تعريف نوع Category هنا بدلاً من استيراده
 interface Category {
@@ -21,8 +36,6 @@ interface Product {
   productCode: string;
   boxQuantity: number;
   piecePrice: number;
-  packPrice: number;
-  boxPrice: number;
   imageUrl: string;
   isNew: boolean;
   createdAt: string;
@@ -43,8 +56,6 @@ export default function AdminProducts() {
     productCode: '',
     boxQuantity: '',
     piecePrice: '',
-    packPrice: '',
-    boxPrice: '',
     imageUrl: '',
     isNew: false,
   });
@@ -218,11 +229,10 @@ export default function AdminProducts() {
     }
   };
 
-  // تحميل بيانات المنتجات بطريقة تضمن الثبات
+  // تحميل بيانات المنتجات
   const loadProductsData = async () => {
     try {
-      setIsLoading(true);
-      console.log('بدء تحميل بيانات المنتجات...');
+      console.log('جاري تحميل بيانات المنتجات...');
       
       // محاولة مزامنة المنتجات من Supabase أولاً إذا كان متصلاً بالإنترنت
       if (isOnline()) {
@@ -233,10 +243,14 @@ export default function AdminProducts() {
           // هذا يضمن الحصول على أحدث البيانات من السيرفر
           const serverProducts = await forceRefreshFromServer();
           
-          if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
+          if (serverProducts && Array.isArray(serverProducts)) {
             console.log('تم تحميل المنتجات من السيرفر بنجاح:', serverProducts.length);
             
-            setProducts(serverProducts as Product[]); // تحديث حالة المنتجات
+            // تحديث حالة المنتجات بالبيانات المستلمة من السيرفر
+            setProducts(prevProducts => {
+              // استبدال البيانات القديمة تماماً
+              return [...serverProducts] as Product[];
+            });
             
             // تحديث التخزين المحلي بالبيانات
             saveData('products', serverProducts);
@@ -244,6 +258,11 @@ export default function AdminProducts() {
             
             // تحديث وقت آخر مزامنة
             setLastSyncTime(Date.now());
+            
+            // إطلاق حدث التحديث
+            window.dispatchEvent(new CustomEvent('customStorageChange', {
+              detail: { type: 'products', source: 'server' }
+            }));
             
             setNotification({
               message: 'تم تحميل البيانات من السيرفر بنجاح',
@@ -267,7 +286,12 @@ export default function AdminProducts() {
       
       if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
         console.log('جاري استخدام البيانات من التخزين الدائم:', savedProducts.length);
-        setProducts(savedProducts as Product[]);
+        
+        // تحديد المنتجات في الحالة
+        setProducts(prevProducts => [...savedProducts] as Product[]);
+        
+        // نسخة احتياطية في localStorage العادي
+        localStorage.setItem('products', JSON.stringify(savedProducts));
         
         // إظهار رسالة توضح أن البيانات من التخزين المحلي
         if (isOnline()) {
@@ -276,11 +300,6 @@ export default function AdminProducts() {
             type: 'info'
           });
           setTimeout(() => setNotification(null), 5000);
-          
-          // نجعل المزامنة التلقائية عند التحميل اختيارية - تم تعطيلها لمنع المزامنة المتكررة
-          // setTimeout(() => {
-          //   syncProductsAndUpdate(false);
-          // }, 1000);
         }
       } else {
         // التحقق من وجود البيانات في localStorage التقليدي
@@ -289,77 +308,12 @@ export default function AdminProducts() {
           try {
             const parsedProducts = JSON.parse(localStorageProducts);
             if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
-              console.log('جاري استخدام البيانات من localStorage:', parsedProducts.length);
-              
-              // حفظ البيانات في التخزين الدائم للمرات القادمة
-              saveData('products', parsedProducts);
+              console.log('تم تحميل البيانات من localStorage:', parsedProducts.length);
               setProducts(parsedProducts);
-              
-              // محاولة رفع البيانات إلى السيرفر إذا كان متصلاً بالإنترنت - تم تعطيلها لمنع المزامنة المتكررة
-              // if (isOnline()) {
-              //   try {
-              //     await saveProductsToSupabase(parsedProducts);
-              //     console.log('تم رفع البيانات المحلية إلى السيرفر');
-              //     setNotification({
-              //       message: 'تم رفع البيانات المحلية إلى السيرفر بنجاح',
-              //       type: 'success'
-              //     });
-              //     setTimeout(() => setNotification(null), 3000);
-              //   } catch (uploadError) {
-              //     console.error('خطأ في رفع البيانات المحلية إلى السيرفر:', uploadError);
-              //   }
-              // }
             }
           } catch (error) {
             console.error('خطأ في تحليل البيانات من localStorage:', error);
           }
-        } else {
-          // بيانات افتراضية إذا لم يتم العثور على أي بيانات
-          console.log('جاري استخدام بيانات المنتجات الافتراضية');
-          const defaultProducts = [
-            {
-              id: '1',
-              name: 'لابتوب Asus',
-              productCode: 'LP001',
-              boxQuantity: 5,
-              piecePrice: 1200,
-              packPrice: 5500,
-              boxPrice: 27000,
-              imageUrl: 'https://via.placeholder.com/300',
-              isNew: true,
-              createdAt: new Date().toISOString(),
-            },
-            {
-              id: '2',
-              name: 'غسالة LG',
-              productCode: 'WM002',
-              boxQuantity: 2,
-              piecePrice: 500,
-              packPrice: 950,
-              boxPrice: 1800,
-              imageUrl: 'https://via.placeholder.com/300',
-              isNew: true,
-              createdAt: new Date().toISOString(),
-            },
-          ];
-          
-          // حفظ البيانات الافتراضية في نظام التخزين الدائم
-          saveData('products', defaultProducts);
-          setProducts(defaultProducts);
-          
-          // مزامنة البيانات الافتراضية مع السيرفر إذا كان متصلاً - تم تعطيلها
-          // if (isOnline()) {
-          //   try {
-          //     await saveProductsToSupabase(defaultProducts);
-          //     setNotification({
-          //       message: 'تم تهيئة قاعدة البيانات بمنتجات افتراضية ومزامنتها مع السيرفر',
-          //       type: 'success'
-          //     });
-          //     setTimeout(() => setNotification(null), 3000);
-          //   } catch (error) {
-          //     console.error('خطأ في تهيئة السيرفر بالبيانات الافتراضية:', error);
-          //   }
-          // }
         }
       }
     } catch (error) {
@@ -587,8 +541,6 @@ export default function AdminProducts() {
       productCode: '',
       boxQuantity: '',
       piecePrice: '',
-      packPrice: '',
-      boxPrice: '',
       imageUrl: '',
       isNew: false,
     });
@@ -602,8 +554,6 @@ export default function AdminProducts() {
       productCode: product.productCode,
       boxQuantity: product.boxQuantity.toString(),
       piecePrice: product.piecePrice.toString(),
-      packPrice: product.packPrice.toString(),
-      boxPrice: product.boxPrice.toString(),
       imageUrl: product.imageUrl,
       isNew: product.isNew,
     });
@@ -624,12 +574,21 @@ export default function AdminProducts() {
         if (Array.isArray(result)) {
           console.log('تم مزامنة التغييرات مع السيرفر بنجاح، عدد المنتجات:', result.length);
           
-          // تأكد من تحديث واجهة المستخدم ببيانات المنتجات المحدثة
-          setProducts(result as Product[]);
+          // تأكد من تحديث الواجهة تحديثاً مباشراً بالبيانات الجديدة
+          setProducts(prevProducts => {
+            // تجاهل البيانات القديمة تماماً واستخدام البيانات الجديدة فقط
+            const newProducts = [...result] as Product[];
+            return newProducts;
+          });
           
           // التأكد من تحديث البيانات المحلية أيضاً
           saveData('products', result);
           localStorage.setItem('products', JSON.stringify(result));
+          
+          // إطلاق حدث لإخبار جميع أجزاء التطبيق بالتغيير
+          window.dispatchEvent(new CustomEvent('customStorageChange', {
+            detail: { type: 'products', source: 'server' }
+          }));
           
           setNotification({
             message: 'تم مزامنة التغييرات مع السيرفر بنجاح',
@@ -677,8 +636,6 @@ export default function AdminProducts() {
               productCode: formData.productCode,
               boxQuantity: parseInt(formData.boxQuantity),
               piecePrice: parseFloat(formData.piecePrice),
-              packPrice: parseFloat(formData.packPrice),
-              boxPrice: parseFloat(formData.boxPrice),
               imageUrl: formData.imageUrl,
               isNew: formData.isNew,
               updated_at: new Date().toISOString(),
@@ -693,8 +650,6 @@ export default function AdminProducts() {
         productCode: formData.productCode,
         boxQuantity: parseInt(formData.boxQuantity),
         piecePrice: parseFloat(formData.piecePrice),
-        packPrice: parseFloat(formData.packPrice),
-        boxPrice: parseFloat(formData.boxPrice),
         imageUrl: formData.imageUrl,
         isNew: formData.isNew,
         createdAt: new Date().toISOString(),
@@ -713,12 +668,16 @@ export default function AdminProducts() {
   };
 
   const handleDeleteProduct = async (id: string) => {
+    // العثور على اسم المنتج لعرضه في رسالة التأكيد
+    const productToDelete = products.find(p => p.id === id);
+    const productName = productToDelete ? productToDelete.name : 'هذا المنتج';
+    
     // تأكد من وجود window قبل استخدام confirm
-    if (typeof window !== 'undefined' && window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+    if (typeof window !== 'undefined' && window.confirm(`هل أنت متأكد من حذف المنتج: ${productName}؟`)) {
       // عرض رسالة تحميل
       setIsLoading(true);
       setNotification({
-        message: 'جاري حذف المنتج...',
+        message: `جاري حذف المنتج: ${productName}...`,
         type: 'info'
       });
       
@@ -734,37 +693,27 @@ export default function AdminProducts() {
         saveData('products', newProducts);
         localStorage.setItem('products', JSON.stringify(newProducts));
         
-        // محاولة مزامنة التغييرات مع السيرفر
-        if (isOnline()) {
-          console.log('محاولة مزامنة الحذف مع السيرفر...');
+        // المزامنة مع السيرفر لحذف المنتج نهائياً
+        const syncResult = await resetAndSyncProducts(newProducts);
+        
+        if (syncResult && Array.isArray(syncResult)) {
+          console.log('تم مزامنة الحذف مع السيرفر بنجاح، عدد المنتجات الحالي:', syncResult.length);
           
-          // استخدام resetAndSyncProducts مباشرة للحذف والمزامنة
-          const result = await resetAndSyncProducts(newProducts);
+          // تحديث المنتجات في الحالة بالبيانات المرجعة من السيرفر
+          setProducts(syncResult);
+          // تحديث التخزين المحلي أيضاً
+          saveData('products', syncResult);
+          localStorage.setItem('products', JSON.stringify(syncResult));
           
-          if (Array.isArray(result)) {
-            console.log('تم مزامنة الحذف مع السيرفر بنجاح، البيانات المحدثة:', result.length);
-            
-            // تأكيد تحديث الواجهة بأحدث البيانات المعادة من السيرفر
-            setProducts(result as Product[]);
-            saveData('products', result);
-            localStorage.setItem('products', JSON.stringify(result));
-            
-            setNotification({
-              message: 'تم حذف المنتج ومزامنة التغييرات مع السيرفر بنجاح',
-              type: 'success'
-            });
-          } else if (typeof result === 'object') {
-            console.log('نتيجة مزامنة الحذف:', result.message);
-            setNotification({
-              message: result.success 
-                ? `تم حذف المنتج: ${result.message}` 
-                : `تم حذف المنتج محلياً فقط: ${result.message}`,
-              type: result.success ? 'success' : 'warning'
-            });
-          }
-        } else {
+          // إشعار نجاح العملية
           setNotification({
-            message: 'تم حذف المنتج محلياً فقط. سيتم المزامنة عند توفر الاتصال بالإنترنت.',
+            message: `تم حذف المنتج "${productName}" ومزامنة التغييرات بنجاح`,
+            type: 'success'
+          });
+        } else if (typeof syncResult === 'object' && !syncResult.success) {
+          console.warn('تم الحذف محلياً ولكن حدثت مشكلة في المزامنة:', syncResult.message);
+          setNotification({
+            message: `تم حذف المنتج محلياً فقط: ${syncResult.message}`,
             type: 'warning'
           });
         }
@@ -775,8 +724,8 @@ export default function AdminProducts() {
           type: 'error'
         });
         
-        // إعادة تحميل المنتجات للتأكد من تطابق الواجهة مع البيانات المخزنة
-        loadProductsData();
+        // إعادة تحميل البيانات من التخزين المحلي فقط لتجنب إعادة ظهور المنتجات المحذوفة
+        loadLocalProductsOnly();
       } finally {
         setIsLoading(false);
         setTimeout(() => setNotification(null), 5000);
@@ -819,10 +768,8 @@ export default function AdminProducts() {
       // التحقق من صحة الأرقام
       const boxQuantity = parseInt(formData.boxQuantity.toString()) || 0;
       const piecePrice = parseFloat(formData.piecePrice.toString()) || 0;
-      const packPrice = parseFloat(formData.packPrice.toString()) || 0;
-      const boxPrice = parseFloat(formData.boxPrice.toString()) || 0;
       
-      if (boxQuantity < 0 || piecePrice < 0 || packPrice < 0 || boxPrice < 0) {
+      if (boxQuantity < 0 || piecePrice < 0) {
         setNotification({
           message: 'خطأ: لا يمكن أن تكون الأسعار أو الكميات بقيم سالبة',
           type: 'error'
@@ -841,8 +788,6 @@ export default function AdminProducts() {
         updated_at: currentDate,
         boxQuantity: boxQuantity,
         piecePrice: piecePrice,
-        packPrice: packPrice,
-        boxPrice: boxPrice,
       };
 
       let updatedProducts: Product[] = [];
@@ -892,32 +837,21 @@ export default function AdminProducts() {
   };
   
   // دالة لتحميل المنتجات من التخزين المحلي فقط دون مزامنة
-  const loadLocalProductsOnly = async () => {
+  const loadLocalProductsOnly = () => {
     try {
-      console.log('تحميل البيانات المحلية فقط...');
-      // محاولة استرجاع البيانات من التخزين المحلي الدائم
-      const savedProducts = await loadData('products');
-      
-      if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
-        console.log('تم تحميل البيانات من التخزين المحلي:', savedProducts.length);
-        setProducts(savedProducts as Product[]);
+      // محاولة استرداد المنتجات من التخزين المحلي
+      const localProducts = localStorage.getItem('products');
+      if (localProducts) {
+        const parsedProducts = JSON.parse(localProducts);
+        console.log('تم تحميل المنتجات من التخزين المحلي فقط. عدد المنتجات:', parsedProducts.length);
+        setProducts(parsedProducts);
       } else {
-        // التحقق من وجود البيانات في localStorage التقليدي
-        const localStorageProducts = localStorage.getItem('products');
-        if (localStorageProducts) {
-          try {
-            const parsedProducts = JSON.parse(localStorageProducts);
-            if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
-              console.log('تم تحميل البيانات من localStorage:', parsedProducts.length);
-              setProducts(parsedProducts);
-            }
-          } catch (error) {
-            console.error('خطأ في تحليل البيانات من localStorage:', error);
-          }
-        }
+        console.log('لم يتم العثور على منتجات في التخزين المحلي');
+        setProducts([]);
       }
     } catch (error) {
-      console.error('خطأ في تحميل البيانات المحلية:', error);
+      console.error('خطأ في تحميل المنتجات من التخزين المحلي:', error);
+      setProducts([]);
     }
   };
 
@@ -1085,12 +1019,6 @@ export default function AdminProducts() {
                 <span className="font-bold">سعر القطعة:</span> {product.piecePrice} جنيه
               </div>
               <div className="bg-gray-50 p-2 rounded">
-                <span className="font-bold">سعر الدستة:</span> {product.packPrice} جنيه
-              </div>
-              <div className="bg-gray-50 p-2 rounded">
-                <span className="font-bold">سعر الكرتونة:</span> {product.boxPrice} جنيه
-              </div>
-              <div className="bg-gray-50 p-2 rounded">
                 <span className="font-bold">الكمية:</span> {product.boxQuantity} قطعة
               </div>
             </div>
@@ -1128,7 +1056,7 @@ export default function AdminProducts() {
                 <FiX size={24} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form className="space-y-4">
               <div>
                 <label
                   htmlFor="name"
@@ -1226,48 +1154,6 @@ export default function AdminProducts() {
                     required
                   />
                 </div>
-                
-                <div>
-                  <label
-                    htmlFor="packPrice"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    سعر الدستة
-                  </label>
-                  <input
-                    type="number"
-                    id="packPrice"
-                    value={formData.packPrice}
-                    onChange={(e) =>
-                      setFormData({ ...formData, packPrice: e.target.value })
-                    }
-                    step="0.01"
-                    min="0"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label
-                    htmlFor="boxPrice"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    سعر الكرتونة
-                  </label>
-                  <input
-                    type="number"
-                    id="boxPrice"
-                    value={formData.boxPrice}
-                    onChange={(e) =>
-                      setFormData({ ...formData, boxPrice: e.target.value })
-                    }
-                    step="0.01"
-                    min="0"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    required
-                  />
-                </div>
               </div>
               
               <div>
@@ -1332,7 +1218,8 @@ export default function AdminProducts() {
                   إلغاء
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleUpdateProduct}
                   className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
                 >
                   {currentProduct ? 'تحديث' : 'إضافة'}

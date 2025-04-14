@@ -159,63 +159,34 @@ export function getFeaturedProducts(limit = 0) {
   }
 }
 
-export function getNewProducts(limit = 0) {
+export function getNewProducts(limit = 8) {
   try {
-    let newProducts: Product[] = [];
-    
-    // محاولة تحميل المنتجات من localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        // تحميل إعدادات المنتجات لمعرفة كم يوم يعتبر المنتج جديداً
-        const settingsData = localStorage.getItem('productSettings');
-        let newProductsDays = 14; // القيمة الافتراضية هي 14 يوم
-        
-        if (settingsData) {
-          const settings = JSON.parse(settingsData);
-          newProductsDays = settings.newProductsDays || 14;
-        }
-        
-        const productsData = localStorage.getItem('products');
-        if (productsData) {
-          const products = JSON.parse(productsData) as Product[];
-          const now = new Date();
-          
-          newProducts = products.filter(product => {
-            // إذا كان المنتج موسوم كجديد، قم بإضافته
-            if (product.isNew === true) {
-              return true;
-            }
-            
-            // التحقق من تاريخ الإنشاء إذا كان موجوداً
-            if (product.createdAt) {
-              const creationDate = new Date(product.createdAt);
-              const timeDiff = now.getTime() - creationDate.getTime();
-              const daysSinceCreation = Math.floor(timeDiff / (1000 * 3600 * 24));
-              
-              return daysSinceCreation <= newProductsDays;
-            }
-            
-            return false;
-          });
-        }
-      } catch (error) {
-        console.error('خطأ في تحميل بيانات المنتجات الجديدة:', error);
+    const products = [
+      {
+        id: '1',
+        name: 'منتج تجريبي 1',
+        productCode: 'TS001',
+        boxQuantity: 5,
+        piecePrice: 1200,
+        imageUrl: 'https://via.placeholder.com/300',
+        isNew: true,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: '2',
+        name: 'منتج تجريبي 2',
+        productCode: 'TS002',
+        boxQuantity: 2,
+        piecePrice: 500,
+        imageUrl: 'https://via.placeholder.com/300',
+        isNew: true,
+        createdAt: new Date().toISOString()
       }
-    }
+    ];
     
-    // إذا لم يتم العثور على منتجات جديدة، استخدم الطريقة الأصلية
-    if (newProducts.length === 0) {
-      newProducts = getProducts({ newOnly: true });
-    }
-    
-    // تطبيق الحد إذا تم تحديده
-    if (limit > 0 && newProducts.length > limit) {
-      return newProducts.slice(0, limit);
-    }
-    
-    return newProducts;
+    return limit ? products.slice(0, limit) : products;
   } catch (error) {
-    console.error('خطأ في الحصول على المنتجات الجديدة:', error);
+    console.error('خطأ في جلب المنتجات الجديدة:', error);
     return [];
   }
 }

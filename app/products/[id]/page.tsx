@@ -215,19 +215,11 @@ export default function ProductPage() {
             
             <div className="grid grid-cols-1 gap-4 mb-6">
               <div className="bg-primary bg-opacity-10 p-4 rounded-lg">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="text-center">
                     <h3 className="text-lg font-bold text-primary mb-2">سعر القطعة</h3>
-                    <p className="text-2xl font-bold">{product.piecePrice} جنيه</p>
+                    <p className="text-3xl font-bold">{product.piecePrice} جنيه</p>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-primary mb-2">سعر الدستة</h3>
-                    <p className="text-2xl font-bold">{product.packPrice} جنيه</p>
-                  </div>
-                </div>
-                <div className="mt-4 p-3 bg-primary bg-opacity-20 rounded-lg">
-                  <h3 className="text-lg font-bold text-primary mb-2 text-center">سعر الكرتونة</h3>
-                  <p className="text-3xl font-bold text-center">{product.boxPrice} جنيه</p>
                 </div>
               </div>
             </div>

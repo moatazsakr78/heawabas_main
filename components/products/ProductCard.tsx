@@ -39,21 +39,16 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
         
         <div className="space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-1 gap-2 text-sm">
             <div className="bg-gray-50 p-2 rounded text-center">
               <p className="font-bold text-primary">سعر القطعة</p>
               <p className="text-lg">{product.piecePrice} جنيه</p>
             </div>
             <div className="bg-gray-50 p-2 rounded text-center">
-              <p className="font-bold text-primary">سعر الدستة</p>
-              <p className="text-lg">{product.packPrice} جنيه</p>
-            </div>
-            <div className="bg-gray-50 p-2 rounded text-center">
-              <p className="font-bold text-primary">سعر الكرتونة</p>
-              <p className="text-lg">{product.boxPrice} جنيه</p>
+              <p className="font-semibold">الكمية في الكرتونة</p>
+              <p className="text-lg">{product.boxQuantity} قطعة</p>
             </div>
           </div>
-          <p className="text-sm"><span className="font-semibold">الكمية في الكرتونة:</span> {product.boxQuantity} قطعة</p>
         </div>
       </div>
     </div>

@@ -60,9 +60,7 @@ function mapDatabaseToAppModel(product: any) {
     name: product.name,
     product_code: product.product_code,
     box_quantity: product.box_quantity,
-    piece_price: product.piece_price,
-    pack_price: product.pack_price,
-    box_price: product.box_price
+    piece_price: product.piece_price
   });
   
   // تعامل مع كلا الاسمين لحقل التاريخ (created_at و createdAt)
@@ -78,20 +76,10 @@ function mapDatabaseToAppModel(product: any) {
   const piecePrice = typeof product.piece_price === 'number' ? product.piece_price : 
                     (product.piece_price !== undefined && product.piece_price !== null) ? 
                     parseFloat(product.piece_price) : 0;
-                    
-  const packPrice = typeof product.pack_price === 'number' ? product.pack_price : 
-                   (product.pack_price !== undefined && product.pack_price !== null) ? 
-                   parseFloat(product.pack_price) : 0;
-                   
-  const boxPrice = typeof product.box_price === 'number' ? product.box_price : 
-                  (product.box_price !== undefined && product.box_price !== null) ? 
-                  parseFloat(product.box_price) : 0;
   
   // تعيين القيم غير القابلة للتحويل إلى 0
   const validBoxQuantity = isNaN(boxQuantity) ? 0 : boxQuantity;
   const validPiecePrice = isNaN(piecePrice) ? 0 : piecePrice;
-  const validPackPrice = isNaN(packPrice) ? 0 : packPrice;
-  const validBoxPrice = isNaN(boxPrice) ? 0 : boxPrice;
   
   const result = {
     id: product.id,
@@ -99,8 +87,6 @@ function mapDatabaseToAppModel(product: any) {
     productCode: product.product_code || '',
     boxQuantity: validBoxQuantity,
     piecePrice: validPiecePrice,
-    packPrice: validPackPrice,
-    boxPrice: validBoxPrice,
     imageUrl: product.image_url || '',
     isNew: !!product.is_new,
     createdAt: createdDate,
@@ -147,8 +133,6 @@ function mapAppModelToDatabase(product: any) {
     product_code: product.productCode,
     box_quantity: product.boxQuantity,
     piece_price: product.piecePrice,
-    pack_price: product.packPrice,
-    box_price: product.boxPrice,
     image_url: product.imageUrl,
     is_new: product.isNew,
     created_at: formattedDate,
@@ -585,10 +569,6 @@ export async function forceRefreshFromServer() {
                      model?.boxQuantity ? Number(model.boxQuantity) : 0,
         piecePrice: typeof model?.piecePrice === 'number' ? model.piecePrice : 
                     model?.piecePrice ? Number(model.piecePrice) : 0,
-        packPrice: typeof model?.packPrice === 'number' ? model.packPrice : 
-                   model?.packPrice ? Number(model.packPrice) : 0,
-        boxPrice: typeof model?.boxPrice === 'number' ? model.boxPrice : 
-                  model?.boxPrice ? Number(model.boxPrice) : 0,
         imageUrl: model?.imageUrl || '',
         isNew: !!model?.isNew,
         createdAt: model?.createdAt || new Date().toISOString(),
@@ -692,86 +672,29 @@ export async function resetAndSyncProducts(products: any[]) {
     const tableExists = await createOrUpdateProductsTable();
     
     if (!tableExists) {
-      console.log('لا يمكن الوصول إلى جدول المنتجات في Supabase. سيتم الحفظ محلياً فقط.');
-      
-      // حفظ البيانات محلياً
-      if (products && products.length > 0) {
-        console.log('حفظ البيانات محلياً فقط...');
-        localStorage.setItem('products', JSON.stringify(products));
-        
-        // تحديث الطابع الزمني للمزامنة
-        lastSyncTimestamp = Date.now();
-        localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
-        
-        // التخزين في IndexedDB
-        try {
-          await saveData('products', products);
-          console.log('تم حفظ البيانات بنجاح في التخزين المحلي الدائم');
-        } catch (dbError) {
-          console.error('فشل في حفظ البيانات في التخزين المحلي الدائم:', dbError);
-        }
-        
-        // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
-        const event = new CustomEvent('customStorageChange', {
-          detail: { type: 'products', source: 'local' }
-        });
-        window.dispatchEvent(event);
-      }
-      
+      console.log('جدول المنتجات غير موجود أو هناك مشكلة في الوصول إليه. سيتم الحفظ محلياً فقط.');
       return {
         success: false,
-        message: 'تم الحفظ محلياً فقط. لا يمكن الوصول إلى قاعدة البيانات في Supabase.'
+        message: 'جدول المنتجات غير موجود أو هناك مشكلة في الوصول إليه. تم الحفظ محلياً فقط.'
       };
     }
     
-    // ⚠️⚠️ المشكلة الأساسية: كنا نحذف المنتجات الموجودة قبل إضافة المنتجات الجديدة
-    // الآن سنجلب المنتجات الموجودة أولاً، ثم نضيف إليها المنتجات الجديدة قبل الرفع
+    // لا حاجة لتحميل البيانات الموجودة من السيرفر عند حذف منتج
+    // سنستخدم المنتجات المحلية المُحدثة (بعد الحذف) فقط
     
-    // جلب كل المنتجات الموجودة في Supabase
-    const { data: existingProducts, error: fetchError } = await supabase
-      .from('products')
-      .select('*');
-    
-    if (fetchError) {
-      console.error('فشل في جلب المنتجات الموجودة:', fetchError);
-      console.log('سنواصل بالمنتجات المحلية فقط...');
-    }
-    
-    // تحويل المنتجات الموجودة إلى تنسيق التطبيق
-    const existingAppProducts = existingProducts ? 
-      existingProducts.map(mapDatabaseToAppModel).filter((product): product is NonNullable<ReturnType<typeof mapDatabaseToAppModel>> => product !== null) : 
-      [];
-    
-    // دمج المنتجات المحلية مع المنتجات الموجودة (مع تفضيل المحلية في حالة وجود نفس المعرف)
-    // إنشاء Map لتخزين المنتجات المحلية بالمعرف
-    const localProductsMap = new Map();
-    products.forEach(product => {
-      localProductsMap.set(product.id, product);
-    });
-    
-    // إضافة المنتجات الموجودة التي ليست ضمن المنتجات المحلية
-    existingAppProducts.forEach(product => {
-      if (!localProductsMap.has(product.id)) {
-        localProductsMap.set(product.id, product);
-      }
-    });
-    
-    // تحويل الخريطة إلى مصفوفة
-    const mergedProducts = Array.from(localProductsMap.values());
-    
-    console.log(`تم دمج المنتجات المحلية والسيرفر، العدد الإجمالي: ${mergedProducts.length}`);
+    // بدلاً من الدمج، نستخدم البيانات المحلية الحالية فقط
+    const productsToSave = [...products];
+    console.log(`عدد المنتجات التي سيتم حفظها: ${productsToSave.length}`);
     
     // تحضير البيانات للإرسال
-    const dbProducts = mergedProducts.map(product => {
+    const dbProducts = productsToSave.map(product => {
       // طباعة القيم للتشخيص
       console.log('تحضير المنتج للإرسال إلى السيرفر:', {
         id: product.id,
         name: product.name,
         productCode: product.productCode,
         boxQuantity: product.boxQuantity,
-        piecePrice: product.piecePrice,
-        packPrice: product.packPrice,
-        boxPrice: product.boxPrice
+        piecePrice: product.piecePrice
       });
       
       const now = new Date().toISOString();
@@ -782,8 +705,6 @@ export async function resetAndSyncProducts(products: any[]) {
         // استخدام التحقق الصريح للقيم الرقمية
         box_quantity: typeof product.boxQuantity === 'number' ? product.boxQuantity : 0,
         piece_price: typeof product.piecePrice === 'number' ? product.piecePrice : 0,
-        pack_price: typeof product.packPrice === 'number' ? product.packPrice : 0,
-        box_price: typeof product.boxPrice === 'number' ? product.boxPrice : 0,
         image_url: product.imageUrl || '',
         is_new: product.isNew === true,
         created_at: product.createdAt || now,
@@ -803,6 +724,12 @@ export async function resetAndSyncProducts(products: any[]) {
       // نستمر في العملية
     }
     
+    // إذا لم يكن هناك منتجات للإدراج، نعيد مصفوفة فارغة
+    if (dbProducts.length === 0) {
+      console.log('لا توجد منتجات للإدراج، تم حذف جميع المنتجات من السيرفر.');
+      return [];
+    }
+    
     // إدراج جميع البيانات المدمجة
     const { data: insertedProducts, error: insertError } = await supabase
       .from('products')
@@ -810,53 +737,45 @@ export async function resetAndSyncProducts(products: any[]) {
       .select();
     
     if (insertError) {
-      console.error('فشل في إدراج المنتجات:', insertError);
+      console.error('فشل في إدراج البيانات في السيرفر:', insertError);
       
-      // حفظ البيانات محلياً على أي حال
-      localStorage.setItem('products', JSON.stringify(mergedProducts));
-      await saveData('products', mergedProducts);
-      
+      // إعادة نتيجة الخطأ
       return {
         success: false,
-        message: `تم الحفظ محلياً فقط. فشل المزامنة: ${insertError.message}`
+        message: insertError.message || 'فشل في إدراج البيانات في السيرفر'
       };
     }
     
-    console.log(`تم إدراج ${dbProducts.length} منتج بنجاح في Supabase`);
+    console.log('تم إدراج البيانات في السيرفر بنجاح:', insertedProducts?.length || 0);
     
-    // تحديث الطابع الزمني للمزامنة
-    lastSyncTimestamp = Date.now();
-    localStorage.setItem('lastSyncTimestamp', lastSyncTimestamp.toString());
+    // تحويل البيانات المُدرجة إلى نموذج التطبيق
+    const updatedProducts = (insertedProducts || []).map(mapDatabaseToAppModel).filter(Boolean);
     
-    // تحويل البيانات المدرجة إلى نموذج التطبيق
-    const finalProducts = insertedProducts.map(mapDatabaseToAppModel);
-    
-    // حفظ في التخزين المحلي أيضاً
-    localStorage.setItem('products', JSON.stringify(finalProducts));
-    await saveData('products', finalProducts);
-    
-    // إطلاق حدث لإبلاغ التطبيق بتغيير البيانات
-    const event = new CustomEvent('customStorageChange', {
-      detail: { type: 'products', source: 'server' }
-    });
-    window.dispatchEvent(event);
-    
-    return finalProducts;
-  } catch (error: any) {
-    console.error('خطأ في resetAndSyncProducts:', error);
-    
-    // محاولة الحفظ محلياً على الأقل
+    // حفظ البيانات في التخزين المحلي
     try {
-      localStorage.setItem('products', JSON.stringify(products));
-      await saveData('products', products);
-      console.log('تم حفظ البيانات محلياً على الرغم من فشل المزامنة');
-    } catch (localError) {
-      console.error('فشل حتى في الحفظ المحلي:', localError);
+      if (typeof window !== 'undefined') {
+        const productsToStore = JSON.stringify(updatedProducts);
+        localStorage.setItem('products', productsToStore);
+        saveData('products', updatedProducts);
+        
+        // تحديث آخر وقت مزامنة
+        localStorage.setItem('lastSyncTimestamp', Date.now().toString());
+        lastSyncTimestamp = Date.now();
+        
+        // إطلاق حدث لإعلام بقية التطبيق بتغير البيانات
+        window.dispatchEvent(new CustomEvent('customStorageChange', {
+          detail: { type: 'products', source: 'server' }
+        }));
+      }
+    } catch (storageError) {
+      console.error('خطأ في حفظ البيانات المحدثة في التخزين المحلي:', storageError);
     }
     
-    return {
-      success: false,
-      message: `فشل في المزامنة: ${error.message}. تم الحفظ محلياً فقط.`
-    };
+    return updatedProducts;
+  } catch (error) {
+    console.error('خطأ غير متوقع أثناء مزامنة المنتجات:', error);
+    
+    // تسجيل وإعادة إرسال الخطأ بتنسيق موحد
+    return logSupabaseError(error);
   }
 } 
