@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw, FiTool } from 'react-icons/fi';
-import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
-import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable, resetAndSyncProducts, supabase } from '@/lib/supabase';
+import { forceRefreshFromServer, isOnline, supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Database } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from '@/components/ui/use-toast';
 import { Category as CategoryType } from '@/types';
 import { Plus, Trash, Edit, Save } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 
 // تعريف نوع Category هنا بدلاً من استيراده
 interface Category {
@@ -49,7 +49,7 @@ export default function AdminProducts() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const loadProductsDataRef = useRef<() => Promise<void>>(); // Add this ref for the realtime subscription
+  const loadProductsDataRef = useRef<() => Promise<void>>();
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning'; show?: boolean } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -63,6 +63,7 @@ export default function AdminProducts() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [syncCooldown, setSyncCooldown] = useState(false);
+  const realtimeSubscription = useRef<{ subscription: any } | null>(null);
 
   useEffect(() => {
     initializePage();
@@ -74,19 +75,9 @@ export default function AdminProducts() {
     window.addEventListener('online', handleOnlineStatusChange);
     window.addEventListener('offline', handleOnlineStatusChange);
     
-    // إضافة مستمع لأحداث التخزين
-    window.addEventListener('customStorageChange', handleStorageChange);
-    
-    // تعطيل المزامنة التلقائية الدورية لأنها تسبب مشاكل في المزامنة المتكررة
-    // const intervalId = setInterval(() => {
-    //   checkAndSyncIfNeeded();
-    // }, 60000 * 5); // كل 5 دقائق
-    
     return () => {
       window.removeEventListener('online', handleOnlineStatusChange);
       window.removeEventListener('offline', handleOnlineStatusChange);
-      window.removeEventListener('customStorageChange', handleStorageChange);
-      // clearInterval(intervalId);
     };
   }, []);
 
@@ -128,90 +119,31 @@ export default function AdminProducts() {
     };
   }, []); // Run once at component mount
   
-  // دالة للتحقق والمزامنة عند الحاجة
-  const checkAndSyncIfNeeded = () => {
-    // لا نزامن إذا كان هناك عملية مزامنة حالية
-    if (isSyncing || syncCooldown) {
-      return;
-    }
-    
-    // لا نزامن إذا لم يكن هناك اتصال بالإنترنت
-    if (!isOnline()) {
-      return;
-    }
-    
-    // التحقق من وقت آخر مزامنة
-    const now = Date.now();
-    const minSyncInterval = 60000 * 5; // 5 دقائق
-    
-    // إذا كان آخر مزامنة منذ أقل من 5 دقائق، نتخطى المزامنة
-    if (lastSyncTime && (now - lastSyncTime < minSyncInterval)) {
-      return;
-    }
-    
-    console.log('محاولة مزامنة تلقائية...');
-    forceRefreshFromServer()
-      .then(serverProducts => {
-        if (serverProducts && Array.isArray(serverProducts) && serverProducts.length > 0) {
-          // تحديث وقت آخر مزامنة
-          setLastSyncTime(Date.now());
-          
-          // مقارنة عدد المنتجات
-          const storedCount = products.length;
-          const serverCount = serverProducts.length;
-          
-          // إذا كان هناك اختلاف في العدد أو آخر مزامنة منذ أكثر من 15 دقيقة
-          if (storedCount !== serverCount || !lastSyncTime || (now - lastSyncTime) > 60000 * 15) {
-            console.log(`تم اكتشاف تغيير في البيانات (محلياً: ${storedCount}، السيرفر: ${serverCount})`);
-            
-            // تحديث واجهة المستخدم والتخزين المحلي
-            setProducts(serverProducts as Product[]);
-            saveData('products', serverProducts);
-            localStorage.setItem('products', JSON.stringify(serverProducts));
-            
-            setNotification({
-              message: 'تم تحديث البيانات من السيرفر تلقائياً',
-              type: 'info'
-            });
-            setTimeout(() => setNotification(null), 3000);
-          }
-        }
-      })
-      .catch(error => {
-        console.error('خطأ في المزامنة التلقائية:', error);
-      });
-  };
-
-  // دالة لتهيئة الصفحة وإعداد جداول قاعدة البيانات
+  // دالة لتهيئة الصفحة
   const initializePage = async () => {
     try {
       setIsLoading(true);
       
-      // التحقق من الاتصال بالإنترنت
-      if (isOnline()) {
-        console.log('جاري التحقق من هيكل قاعدة البيانات...');
-        try {
-          // إنشاء أو تحديث هيكل جدول المنتجات
-          await createOrUpdateProductsTable();
-          console.log('تم التحقق من هيكل قاعدة البيانات بنجاح');
-        } catch (error) {
-          console.error('خطأ أثناء تهيئة قاعدة البيانات:', error);
-          setNotification({
-            message: 'حدث خطأ أثناء التحقق من هيكل قاعدة البيانات. سيتم استخدام الوضع المحلي فقط.',
-            type: 'error'
-          });
-          setTimeout(() => setNotification(null), 5000);
-        }
+      if (!isOnline()) {
+        setNotification({
+          message: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال لعرض البيانات.',
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return;
       }
       
       // تحميل البيانات
       await loadProductsData();
       await loadCategoriesData();
       
-      // تعيين وقت آخر مزامنة
-      setLastSyncTime(Date.now());
     } catch (error) {
       console.error('خطأ في تهيئة الصفحة:', error);
+      setNotification({
+        message: 'حدث خطأ أثناء تحميل البيانات',
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -222,22 +154,17 @@ export default function AdminProducts() {
     if (isOnline()) {
       console.log('تم استعادة الاتصال بالإنترنت.');
       setNotification({
-        message: 'تم استعادة الاتصال بالإنترنت. اضغط على زر المزامنة لتحديث البيانات.',
+        message: 'تم استعادة الاتصال بالإنترنت. جاري تحديث البيانات.',
         type: 'success'
       });
       setTimeout(() => setNotification(null), 5000);
       
-      // تعطيل المزامنة التلقائية عند استعادة الاتصال لمنع المزامنة المتكررة
-      // التعليق التالي يمنع المزامنة التلقائية عند استعادة الاتصال
-      // if (!isSyncing && !syncCooldown) {
-      //   setTimeout(() => {
-      //     syncProductsAndUpdate(false);
-      //   }, 1500);
-      // }
+      // تحديث البيانات فوراً عند استعادة الاتصال
+      loadProductsData();
     } else {
-      console.log('تم فقد الاتصال بالإنترنت. سيتم استخدام البيانات المحلية فقط.');
+      console.log('تم فقد الاتصال بالإنترنت.');
       setNotification({
-        message: 'تم فقد الاتصال بالإنترنت. سيتم حفظ التغييرات محلياً فقط.',
+        message: 'تم فقد الاتصال بالإنترنت. لن يتم عرض أحدث البيانات حتى يتم إعادة الاتصال.',
         type: 'error'
       });
       setTimeout(() => setNotification(null), 5000);
@@ -247,23 +174,8 @@ export default function AdminProducts() {
   // تحميل بيانات الفئات
   const loadCategoriesData = async () => {
     try {
-      // محاولة استرجاع الفئات من التخزين الدائم
-      const savedCategories = await loadData('categories');
-      
-      if (savedCategories && Array.isArray(savedCategories)) {
-        // تنسيق البيانات
-        const formattedCategories = savedCategories.map((cat: any) => ({
-          id: String(cat.id),
-          name: cat.name,
-          slug: cat.slug || '',
-          image: cat.imageUrl || cat.image || '',
-          description: cat.description || 'وصف القسم'
-        }));
-        setCategories(formattedCategories);
-      } else {
-        // استخدام دالة getCategories كبديل
-        setCategories(getCategories());
-      }
+      // استخدام دالة getCategories مباشرة
+      setCategories(getCategories());
     } catch (error) {
       console.error('Error loading categories:', error);
       // استخدام دالة getCategories كبديل
@@ -272,307 +184,234 @@ export default function AdminProducts() {
   };
 
   // تحميل بيانات المنتجات
-  const loadProductsData = async () => {
+  const loadProductsData = useCallback(async () => {
+    setIsLoading(true);
     try {
-      console.log('جاري تحميل بيانات المنتجات...');
+      // استخدام وظيفة forceRefreshFromServer للتأكد من تحميل البيانات مباشرة من السيرفر
+      const products = await forceRefreshFromServer();
       
-      // محاولة مزامنة المنتجات من Supabase أولاً إذا كان متصلاً بالإنترنت
-      if (isOnline()) {
-        try {
-          console.log('جاري محاولة تحميل المنتجات مباشرة من السيرفر...');
-          
-          // استخدام طريقة forceRefreshFromServer بدلاً من loadProductsFromSupabase
-          // هذا يضمن الحصول على أحدث البيانات من السيرفر
-          const serverProducts = await forceRefreshFromServer();
-          
-          if (serverProducts && Array.isArray(serverProducts)) {
-            console.log('تم تحميل المنتجات من السيرفر بنجاح:', serverProducts.length);
-            
-            // تحديث حالة المنتجات بالبيانات المستلمة من السيرفر
-            setProducts(prevProducts => {
-              // استبدال البيانات القديمة تماماً
-              return [...serverProducts] as Product[];
-            });
-            
-            // تحديث التخزين المحلي بالبيانات
-            saveData('products', serverProducts);
-            localStorage.setItem('products', JSON.stringify(serverProducts));
-            
-            // تحديث وقت آخر مزامنة
-            setLastSyncTime(Date.now());
-            
-            // إطلاق حدث التحديث
-            window.dispatchEvent(new CustomEvent('customStorageChange', {
-              detail: { type: 'products', source: 'server' }
-            }));
-            
-            setNotification({
-              message: 'تم تحميل البيانات من السيرفر بنجاح',
-              type: 'success'
-            });
-            setTimeout(() => setNotification(null), 3000);
-            setIsLoading(false);
-            return;
-          } else {
-            console.log('لم يتم العثور على منتجات في السيرفر، جاري التحقق من البيانات المحلية');
-          }
-        } catch (error) {
-          console.error('خطأ في تحميل المنتجات من السيرفر:', error);
-        }
-      } else {
-        console.log('الجهاز غير متصل بالإنترنت. سيتم استخدام البيانات المحلية فقط.');
+      if (!products) {
+        console.log('لم يتم العثور على منتجات');
+        setProducts([]);
+        return;
       }
       
-      // محاولة استرجاع البيانات من التخزين المحلي الدائم
-      const savedProducts = await loadData('products');
-      
-      if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
-        console.log('جاري استخدام البيانات من التخزين الدائم:', savedProducts.length);
-        
-        // تحديد المنتجات في الحالة
-        setProducts(prevProducts => [...savedProducts] as Product[]);
-        
-        // نسخة احتياطية في localStorage العادي
-        localStorage.setItem('products', JSON.stringify(savedProducts));
-        
-        // إظهار رسالة توضح أن البيانات من التخزين المحلي
-        if (isOnline()) {
-          setNotification({
-            message: 'تم تحميل البيانات من التخزين المحلي.',
-            type: 'info'
-          });
-          setTimeout(() => setNotification(null), 5000);
-        }
-      } else {
-        // التحقق من وجود البيانات في localStorage التقليدي
-        const localStorageProducts = localStorage.getItem('products');
-        if (localStorageProducts) {
-          try {
-            const parsedProducts = JSON.parse(localStorageProducts);
-            if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
-              console.log('تم تحميل البيانات من localStorage:', parsedProducts.length);
-              setProducts(parsedProducts);
-            }
-          } catch (error) {
-            console.error('خطأ في تحليل البيانات من localStorage:', error);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('خطأ في تحميل المنتجات:', error);
+      console.log('تم تحميل المنتجات من Supabase بنجاح. عدد المنتجات:', products.length);
+      setProducts(products);
+    } catch (error: any) {
+      console.error('خطأ غير متوقع أثناء تحميل المنتجات:', error);
       setNotification({
-        message: 'حدث خطأ أثناء تحميل المنتجات',
+        message: `حدث خطأ أثناء تحميل البيانات: ${error.message || 'خطأ غير معروف'}`,
         type: 'error'
       });
-      setTimeout(() => setNotification(null), 3000);
+      setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  // تحميل المنتجات وإعداد اشتراك Realtime
+  useEffect(() => {
+    // تحميل بيانات المنتجات مباشرة عند تحميل الصفحة
+    loadProductsData();
+
+    // إعداد اشتراك Realtime لمراقبة التغييرات في جدول المنتجات
+    const setupRealtimeSubscription = async () => {
+      // إلغاء أي اشتراك سابق أولاً
+      if (realtimeSubscription.current?.subscription) {
+        supabase.removeChannel(realtimeSubscription.current.subscription);
+      }
+
+      // إنشاء اشتراك جديد
+      const channel = supabase
+        .channel('products_changes')
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'products' 
+          }, 
+          async (payload) => {
+            console.log('تم استلام تغيير في المنتجات من Realtime:', payload);
+            
+            // تحميل بيانات المنتجات مباشرة بعد أي تغيير
+            loadProductsData();
+          }
+        )
+        .subscribe((status) => {
+          console.log('حالة اشتراك Realtime:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('تم إنشاء اشتراك Realtime للمنتجات بنجاح');
+          }
+        });
+
+      // تخزين الاشتراك للاستخدام لاحقاً
+      realtimeSubscription.current = { subscription: channel };
+    };
+
+    // إعداد اشتراك Realtime
+    setupRealtimeSubscription();
+
+    // تنظيف الاشتراك عند إلغاء تحميل المكون
+    return () => {
+      if (realtimeSubscription.current?.subscription) {
+        supabase.removeChannel(realtimeSubscription.current.subscription);
+      }
+    };
+  }, [loadProductsData]);
+
+  // تحميل الفئات من Supabase
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const { data: categoriesData, error } = await supabase
+          .from('categories')
+          .select('*');
+          
+        if (error) {
+          console.error('خطأ في تحميل الفئات:', error);
+          return;
+        }
+        
+        if (categoriesData) {
+          const formattedCategories = categoriesData.map((category: any) => ({
+            id: category.id,
+            name: category.name,
+            slug: category.slug || category.id.toString(),
+            description: category.description || '',
+            image: category.image || '',
+          }));
+          
+          setCategories(formattedCategories);
+        }
+      } catch (error) {
+        console.error('خطأ في تحميل الفئات:', error);
+      }
+    };
+    
+    loadCategories();
+  }, []);
+  
+  // Supabase direct operations
+  const saveProductToSupabase = async (product: Product) => {
+    if (!isOnline()) {
+      setNotification({
+        message: 'لا يوجد اتصال بالإنترنت. لا يمكن حفظ التغييرات.',
+        type: 'error'
+      });
+      return false;
+    }
+
+    try {
+      // إعداد المنتج بالتنسيق المناسب للقاعدة
+      const dbProduct = {
+        id: product.id,
+        name: product.name,
+        product_code: product.productCode,
+        box_quantity: product.boxQuantity,
+        piece_price: product.piecePrice,
+        image_url: product.imageUrl,
+        is_new: product.isNew,
+        created_at: product.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        category_id: null // إذا كان هناك حاجة لتعيين فئة
+      };
+
+      const { data, error } = await supabase
+        .from('products')
+        .upsert(dbProduct, {
+          onConflict: 'id',
+          ignoreDuplicates: false
+        });
+
+      if (error) {
+        console.error('خطأ في حفظ المنتج:', error);
+        setNotification({
+          message: `خطأ في حفظ المنتج: ${error.message}`,
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return false;
+      }
+      
+      console.log('تم حفظ المنتج بنجاح:', product.name);
+      return true;
+    } catch (error: any) {
+      console.error('خطأ غير متوقع:', error);
+      setNotification({
+        message: `خطأ غير متوقع: ${error.message || 'خطأ غير معروف'}`,
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return false;
+    }
   };
 
-  // دالة المزامنة مع السيرفر وتحديث الواجهة
-  const syncProductsAndUpdate = async (showNotification = false) => {
-    // وقت النتظار بين عمليات المزامنة (10 ثوان)
-    const SYNC_COOLDOWN_TIME = 10000; // 10 ثوان
-    
-    // التحقق إذا كان هناك عملية مزامنة حالية
-    if (isSyncing) {
-      console.log('هناك عملية مزامنة جارية بالفعل، يرجى الانتظار...');
-      setNotification({
-        message: 'هناك عملية مزامنة جارية بالفعل، يرجى الانتظار...',
-        type: 'info'
-      });
-      setTimeout(() => setNotification(null), 2000);
-      return;
-    }
-    
-    // التحقق من وقت الانتظار بين عمليات المزامنة
-    if (syncCooldown) {
-      console.log('تم طلب المزامنة مؤخراً، يرجى الانتظار...');
-      setNotification({
-        message: 'يرجى الانتظار قليلاً بين عمليات المزامنة',
-        type: 'info'
-      });
-      setTimeout(() => setNotification(null), 2000);
-      return;
-    }
-    
+  const deleteProductFromSupabase = async (id: string) => {
     if (!isOnline()) {
-      console.log('لا يوجد اتصال بالإنترنت. تم تخطي المزامنة.');
       setNotification({
-        message: 'لا يوجد اتصال بالإنترنت. تم تخطي المزامنة.',
-        type: 'warning'
+        message: 'لا يوجد اتصال بالإنترنت. لا يمكن حذف المنتج.',
+        type: 'error'
+      });
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('خطأ في حذف المنتج:', error);
+        setNotification({
+          message: `خطأ في حذف المنتج: ${error.message}`,
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return false;
+      }
+      
+      console.log('تم حذف المنتج بنجاح، معرف:', id);
+      return true;
+    } catch (error: any) {
+      console.error('خطأ غير متوقع:', error);
+      setNotification({
+        message: `خطأ غير متوقع: ${error.message || 'خطأ غير معروف'}`,
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 5000);
+      return false;
+    }
+  };
+
+  const refreshProductsFromSupabase = async () => {
+    if (!isOnline()) {
+      setNotification({
+        message: 'لا يوجد اتصال بالإنترنت. لا يمكن تحديث البيانات.',
+        type: 'error'
       });
       setTimeout(() => setNotification(null), 5000);
       return;
     }
-    
-    // تعيين حالة المزامنة والوقت الفاصل
-    setIsSyncing(true);
-    setSyncCooldown(true);
-    
-    try {
-      // بدلاً من استخدام syncProductsFromSupabase، نستخدم resetAndSyncProducts
-      // هذا سيضمن تطابق هيكل الجدول مع البيانات
-      console.log('استخدام إعادة ضبط ومزامنة المنتجات...');
-      
-      const serverProducts = await resetAndSyncProducts(products);
-      
-      // تحديث وقت آخر مزامنة
-      setLastSyncTime(Date.now());
-      
-      if (serverProducts) {
-        // فحص نوع البيانات المرجعة - إما مصفوفة أو كائن
-        if (Array.isArray(serverProducts)) {
-          // تحديث واجهة المستخدم بالمنتجات المزامنة
-          setProducts(serverProducts as Product[]);
-          console.log("تم تحديث المنتجات من السيرفر:", serverProducts.length);
-          
-          // التأكد من تحديث البيانات المحلية أيضاً
-          localStorage.setItem('products', JSON.stringify(serverProducts));
-          try {
-            await saveData('products', serverProducts);
-          } catch (e) {
-            console.error('خطأ في حفظ البيانات محلياً:', e);
-          }
-          
-          if (showNotification) {
-            setNotification({
-              message: `تم تحديث المنتجات من السيرفر: ${serverProducts.length} منتج`,
-              type: "success"
-            });
-            setTimeout(() => setNotification(null), 5000);
-          }
-        } else {
-          // التعامل مع حالة الكائن (success, message)
-          console.log("نتيجة المزامنة:", serverProducts.message);
-          
-          if (showNotification) {
-            setNotification({
-              message: serverProducts.message,
-              type: 'message' in serverProducts && 'success' in serverProducts && serverProducts.success ? "success" : "warning"
-            });
-            setTimeout(() => setNotification(null), 5000);
-          }
-        }
-      } else {
-        console.log("لم يتم العثور على منتجات في السيرفر");
-        
-        if (showNotification) {
-          setNotification({
-            message: "لم يتم العثور على منتجات في السيرفر",
-            type: "warning"
-          });
-          setTimeout(() => setNotification(null), 5000);
-        }
-      }
-    } catch (error: any) {
-      console.error("خطأ أثناء المزامنة:", error);
-      
-      setNotification({
-        message: `حدث خطأ أثناء المزامنة: ${error.message || "خطأ غير معروف"}`,
-        type: "error"
-      });
-      setTimeout(() => setNotification(null), 8000);
-    } finally {
-      setIsSyncing(false);
-      
-      // إعادة تعيين حالة المزامنة بعد وقت الانتظار (10 ثوان)
-      setTimeout(() => {
-        console.log('تم إعادة تعيين وقت الانتظار للمزامنة');
-        setSyncCooldown(false);
-      }, SYNC_COOLDOWN_TIME);
-    }
-  };
 
-  // تعديل وظيفة حفظ المنتجات لاستخدام التخزين الدائم والمزامنة مع Supabase
-  const saveProducts = async (newProducts: Product[]) => {
-    setProducts(newProducts);
-    setIsLoading(true);
-    
-    // حفظ البيانات في نظام التخزين الدائم
-    saveData('products', newProducts);
-    
-    // أيضًا حفظ في localStorage التقليدي للتوافق مع بقية التطبيق
-    localStorage.setItem('products', JSON.stringify(newProducts));
-    
-    // مزامنة مع Supabase إذا كان متصلاً بالإنترنت
-    let syncSuccess = false;
-    let errorMessage = '';
-    
-    if (isOnline()) {
-      try {
-        console.log('جاري مزامنة المنتجات مع السيرفر...');
-        
-        // استخدام resetAndSyncProducts بدلاً من saveProductsToSupabase للمزامنة الكاملة
-        const result = await resetAndSyncProducts(newProducts);
-        
-        if (Array.isArray(result)) {
-          syncSuccess = true;
-          console.log('تمت مزامنة المنتجات مع السيرفر بنجاح، عدد المنتجات:', result.length);
-          // تحديث البيانات المحلية بالبيانات المُرجعة من السيرفر
-          setProducts(result as Product[]);
-          saveData('products', result);
-          localStorage.setItem('products', JSON.stringify(result));
-        } else if (typeof result === 'object') {
-          if ('success' in result && result.success) {
-            syncSuccess = true;
-            console.log('تمت مزامنة المنتجات مع السيرفر بنجاح:', result.message);
-          } else {
-            errorMessage = result.message || 'خطأ غير معروف في المزامنة';
-            console.error('خطأ في الحفظ إلى السيرفر:', errorMessage);
-            setNotification({
-              message: `تم حفظ البيانات محلياً فقط. ${errorMessage}`,
-              type: 'warning'  // تغيير النوع إلى تحذير بدلاً من خطأ لأن البيانات نُفذت محلياً
-            });
-            setTimeout(() => setNotification(null), 8000);
-          }
-        }
-      } catch (error: any) {
-        console.error('خطأ في الحفظ إلى السيرفر:', error);
-        
-        // استخدام الرسالة الودية للمستخدم إذا كانت متاحة
-        errorMessage = error.userFriendlyMessage || error.message || 'خطأ غير معروف في المزامنة';
-        
-        setNotification({
-          message: `تم حفظ البيانات محلياً فقط. ${errorMessage}`,
-          type: 'warning'  // تغيير النوع إلى تحذير بدلاً من خطأ لأن البيانات نُفذت محلياً
-        });
-        setTimeout(() => setNotification(null), 8000);
-      }
-    }
-    
-    // إرسال أحداث التخزين لإعلام بقية التطبيق بالتغييرات
+    setIsSyncing(true);
     try {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('storage'));
-        window.dispatchEvent(new CustomEvent('customStorageChange', { 
-          detail: { type: 'products', timestamp: Date.now() }
-        }));
-      }
-      
-      // عرض إشعار نجاح فقط إذا لم يكن هناك خطأ بالفعل
-      if (!errorMessage) {
-        setNotification({
-          message: isOnline() && syncSuccess 
-            ? 'تم حفظ التغييرات بنجاح ومزامنتها مع السيرفر. التغييرات ستظهر في جميع الأجهزة.' 
-            : 'تم حفظ التغييرات محلياً فقط. ستتم المزامنة عند اتصالك بالإنترنت.',
-          type: 'success'
-        });
-      }
-      
-    } catch (error) {
-      console.error('خطأ في إرسال حدث التخزين:', error);
+      await loadProductsData();
       setNotification({
-        message: 'حدثت مشكلة أثناء حفظ التغييرات',
+        message: 'تم تحديث البيانات من السيرفر بنجاح',
+        type: 'success'
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('خطأ في تحديث البيانات:', error);
+      setNotification({
+        message: 'حدث خطأ أثناء تحديث البيانات',
         type: 'error'
       });
+      setTimeout(() => setNotification(null), 5000);
     } finally {
-      setIsLoading(false);
-      // إعطاء وقت أطول لعرض رسائل الخطأ
-      if (!errorMessage) {
-        setTimeout(() => setNotification(null), 5000);
-      }
+      setIsSyncing(false);
     }
   };
 
@@ -602,113 +441,6 @@ export default function AdminProducts() {
     setIsModalOpen(true);
   };
 
-  // وظيفة مساعدة للمزامنة مع السيرفر
-  const syncWithServerAfterChanges = async (productsToSync: Product[]) => {
-    if (isOnline()) {
-      setIsSyncing(true);
-      try {
-        console.log('جاري مزامنة التغييرات مع السيرفر...');
-        
-        // استخدام resetAndSyncProducts بدلاً من saveProductsToSupabase
-        // هذه الوظيفة تقوم بمزامنة كاملة وتضمن أن البيانات في السيرفر مطابقة تماماً للبيانات المحلية
-        const result = await resetAndSyncProducts(productsToSync);
-        
-        if (Array.isArray(result)) {
-          console.log('تم مزامنة التغييرات مع السيرفر بنجاح، عدد المنتجات:', result.length);
-          
-          // تأكد من تحديث الواجهة تحديثاً مباشراً بالبيانات الجديدة
-          setProducts(prevProducts => {
-            // تجاهل البيانات القديمة تماماً واستخدام البيانات الجديدة فقط
-            const newProducts = [...result] as Product[];
-            return newProducts;
-          });
-          
-          // التأكد من تحديث البيانات المحلية أيضاً
-          saveData('products', result);
-          localStorage.setItem('products', JSON.stringify(result));
-          
-          // إطلاق حدث لإخبار جميع أجزاء التطبيق بالتغيير
-          window.dispatchEvent(new CustomEvent('customStorageChange', {
-            detail: { type: 'products', source: 'server' }
-          }));
-          
-          setNotification({
-            message: 'تم مزامنة التغييرات مع السيرفر بنجاح',
-            type: 'success'
-          });
-        } else if (typeof result === 'object') {
-          console.log('نتيجة المزامنة:', result.message);
-          if ('success' in result && !result.success) {
-            setNotification({
-              message: `تم الحفظ محلياً فقط: ${result.message}`,
-              type: 'warning'
-            });
-          } else {
-            setNotification({
-              message: result.message,
-              type: 'success'
-            });
-          }
-        }
-      } catch (error: any) {
-        console.error('خطأ في مزامنة التغييرات مع السيرفر:', error);
-        setNotification({
-          message: `فشل في مزامنة التغييرات: ${error.message || 'خطأ غير معروف'}`,
-          type: 'error'
-        });
-      } finally {
-        setIsSyncing(false);
-        setTimeout(() => setNotification(null), 5000);
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    let updatedProducts: Product[] = [];
-    
-    if (currentProduct) {
-      // تحديث منتج موجود
-      updatedProducts = products.map((prod) =>
-        prod.id === currentProduct.id
-          ? {
-              ...prod,
-              name: formData.name,
-              productCode: formData.productCode,
-              boxQuantity: parseInt(formData.boxQuantity),
-              piecePrice: parseFloat(formData.piecePrice),
-              imageUrl: formData.imageUrl,
-              isNew: formData.isNew,
-              updated_at: new Date().toISOString(),
-            }
-          : prod
-      );
-    } else {
-      // إضافة منتج جديد
-      const newProduct = {
-        id: Date.now().toString(),
-        name: formData.name,
-        productCode: formData.productCode,
-        boxQuantity: parseInt(formData.boxQuantity),
-        piecePrice: parseFloat(formData.piecePrice),
-        imageUrl: formData.imageUrl,
-        isNew: formData.isNew,
-        createdAt: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      updatedProducts = [...products, newProduct];
-    }
-    
-    await saveProducts(updatedProducts);
-    
-    // مزامنة التغييرات مع السيرفر
-    await syncWithServerAfterChanges(updatedProducts);
-    
-    setIsModalOpen(false);
-  };
-
   const handleDeleteProduct = async (id: string) => {
     // العثور على اسم المنتج لعرضه في رسالة التأكيد
     const productToDelete = products.find(p => p.id === id);
@@ -716,7 +448,6 @@ export default function AdminProducts() {
     
     // تأكد من وجود window قبل استخدام confirm
     if (typeof window !== 'undefined' && window.confirm(`هل أنت متأكد من حذف المنتج: ${productName}؟`)) {
-      // عرض رسالة تحميل
       setIsLoading(true);
       setNotification({
         message: `جاري حذف المنتج: ${productName}...`,
@@ -724,39 +455,15 @@ export default function AdminProducts() {
       });
       
       try {
-        // حذف المنتج من القائمة المحلية
-        const newProducts = products.filter((product) => product.id !== id);
-        console.log(`تم حذف المنتج ${id}، عدد المنتجات الجديد:`, newProducts.length);
+        // حذف المنتج من Supabase
+        const success = await deleteProductFromSupabase(id);
         
-        // تحديث واجهة المستخدم أولاً لتحسين تجربة المستخدم
-        setProducts(newProducts);
-        
-        // حفظ التغييرات محلياً
-        saveData('products', newProducts);
-        localStorage.setItem('products', JSON.stringify(newProducts));
-        
-        // المزامنة مع السيرفر لحذف المنتج نهائياً
-        const syncResult = await resetAndSyncProducts(newProducts);
-        
-        if (syncResult && Array.isArray(syncResult)) {
-          console.log('تم مزامنة الحذف مع السيرفر بنجاح، عدد المنتجات الحالي:', syncResult.length);
-          
-          // تحديث المنتجات في الحالة بالبيانات المرجعة من السيرفر
-          setProducts(syncResult as Product[]);
-          // تحديث التخزين المحلي أيضاً
-          saveData('products', syncResult);
-          localStorage.setItem('products', JSON.stringify(syncResult));
-          
-          // إشعار نجاح العملية
+        if (success) {
+          // تحديث القائمة المحلية فقط بعد نجاح الحذف من Supabase
+          // (الاستجابة من الـ Realtime ستقوم بتحديث البيانات تلقائياً)
           setNotification({
-            message: `تم حذف المنتج "${productName}" ومزامنة التغييرات بنجاح`,
+            message: `تم حذف المنتج "${productName}" بنجاح`,
             type: 'success'
-          });
-        } else if (typeof syncResult === 'object' && 'success' in syncResult && !syncResult.success) {
-          console.warn('تم الحذف محلياً ولكن حدثت مشكلة في المزامنة:', syncResult.message);
-          setNotification({
-            message: `تم حذف المنتج محلياً فقط: ${syncResult.message}`,
-            type: 'warning'
           });
         }
       } catch (error: any) {
@@ -765,9 +472,6 @@ export default function AdminProducts() {
           message: `فشل في حذف المنتج: ${error.message || 'خطأ غير معروف'}`,
           type: 'error'
         });
-        
-        // إعادة تحميل البيانات من التخزين المحلي فقط لتجنب إعادة ظهور المنتجات المحذوفة
-        loadLocalProductsOnly();
       } finally {
         setIsLoading(false);
         setTimeout(() => setNotification(null), 5000);
@@ -832,28 +536,20 @@ export default function AdminProducts() {
         piecePrice: piecePrice,
       };
 
-      let updatedProducts: Product[] = [];
-      
-      if (currentProduct) {
-        // تحديث منتج موجود
-        updatedProducts = products.map((prod) =>
-          prod.id === currentProduct.id
-            ? updatedProduct
-            : prod
-        );
-      } else {
-        // إضافة منتج جديد
-        updatedProducts = [...products, updatedProduct];
-      }
-      
       // أولاً نغلق النافذة لتحسين تجربة المستخدم
       setIsModalOpen(false);
       
-      // ثم نقوم بحفظ المنتجات ومزامنتها مع السيرفر في الخلفية
-      await saveProducts(updatedProducts);
+      // حفظ المنتج مباشرة إلى Supabase
+      const success = await saveProductToSupabase(updatedProduct);
       
-      // مزامنة التغييرات مع السيرفر
-      await syncWithServerAfterChanges(updatedProducts);
+      if (success) {
+        // سيتم تحديث الواجهة تلقائياً من خلال اشتراك Realtime
+        setNotification({
+          message: `تم ${currentProduct ? 'تحديث' : 'إضافة'} المنتج بنجاح`,
+          type: 'success'
+        });
+        setTimeout(() => setNotification(null), 3000);
+      }
       
       setIsLoading(false);
     } catch (error: any) {
@@ -867,61 +563,7 @@ export default function AdminProducts() {
     }
   };
 
-  // دالة للتعامل مع تغييرات التخزين
-  const handleStorageChange = (event: any) => {
-    // تجنب إعادة التحميل إذا كان مصدر التغيير هو هذه الصفحة
-    if (event.detail?.source === 'server' || event.detail?.type !== 'products') {
-      return;
-    }
-    
-    if (event.detail?.type === 'products') {
-      console.log('تم اكتشاف تغيير في بيانات المنتجات من مصدر خارجي، جاري تحديث الواجهة...');
-      // تحميل البيانات من التخزين المحلي فقط دون مزامنة مع السيرفر
-      loadLocalProductsOnly();
-    }
-  };
-  
-  // دالة لتحميل المنتجات من التخزين المحلي فقط دون مزامنة
-  const loadLocalProductsOnly = () => {
-    try {
-      // محاولة استرداد المنتجات من التخزين المحلي
-      const localProducts = localStorage.getItem('products');
-      if (localProducts) {
-        const parsedProducts = JSON.parse(localProducts);
-        console.log('تم تحميل المنتجات من التخزين المحلي فقط. عدد المنتجات:', parsedProducts.length);
-        setProducts(parsedProducts);
-      } else {
-        console.log('لم يتم العثور على منتجات في التخزين المحلي');
-        setProducts([]);
-      }
-    } catch (error) {
-      console.error('خطأ في تحميل المنتجات من التخزين المحلي:', error);
-      setProducts([]);
-    }
-  };
-
-  // دالة لمزامنة البيانات مع السيرفر
   const handleSyncWithServer = async () => {
-    // التحقق من وقت الانتظار بين عمليات المزامنة
-    if (syncCooldown) {
-      setNotification({
-        message: 'يرجى الانتظار قليلاً قبل إجراء مزامنة جديدة',
-        type: 'info'
-      });
-      setTimeout(() => setNotification(null), 2000);
-      return;
-    }
-    
-    // التحقق إذا كان هناك عملية مزامنة حالية
-    if (isSyncing) {
-      setNotification({
-        message: 'هناك عملية مزامنة جارية بالفعل...',
-        type: 'info'
-      });
-      setTimeout(() => setNotification(null), 2000);
-      return;
-    }
-    
     if (!isOnline()) {
       setNotification({
         message: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال أولاً.',
@@ -931,8 +573,17 @@ export default function AdminProducts() {
       return;
     }
     
-    console.log('بدء مزامنة يدوية للمنتجات مع السيرفر');
-    syncProductsAndUpdate(true);
+    if (isSyncing) {
+      setNotification({
+        message: 'هناك عملية تحديث جارية بالفعل...',
+        type: 'info'
+      });
+      setTimeout(() => setNotification(null), 2000);
+      return;
+    }
+    
+    console.log('بدء تحديث يدوي للمنتجات من السيرفر');
+    refreshProductsFromSupabase();
   };
 
   return (
