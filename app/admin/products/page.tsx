@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { FiPlus, FiEdit, FiTrash2, FiX, FiImage, FiRefreshCw, FiTool } from 'react-icons/fi';
 import { saveData, loadData, hasData } from '@/lib/localStorage';
 import { getCategories } from '@/lib/data';
-import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable, resetAndSyncProducts } from '@/lib/supabase';
+import { saveProductsToSupabase, loadProductsFromSupabase, syncProductsFromSupabase, forceRefreshFromServer, isOnline, createOrUpdateProductsTable, resetAndSyncProducts, supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Database } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -49,6 +49,7 @@ export default function AdminProducts() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadProductsDataRef = useRef<() => Promise<void>>(); // Add this ref for the realtime subscription
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning'; show?: boolean } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -65,6 +66,9 @@ export default function AdminProducts() {
 
   useEffect(() => {
     initializePage();
+    
+    // Store the loadProductsData function in a ref to use it in the realtime subscription
+    loadProductsDataRef.current = loadProductsData;
     
     // إضافة مستمع للاتصال بالإنترنت
     window.addEventListener('online', handleOnlineStatusChange);
@@ -85,6 +89,44 @@ export default function AdminProducts() {
       // clearInterval(intervalId);
     };
   }, []);
+
+  // Add a new useEffect for the Supabase Realtime subscription
+  useEffect(() => {
+    // Don't set up subscription if offline
+    if (!isOnline()) return;
+
+    console.log('تهيئة اشتراك Supabase Realtime لجدول المنتجات');
+    
+    // Create a channel for postgres_changes on the products table
+    const channel = supabase
+      .channel('realtime:admin-products')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'products'
+        },
+        (payload) => {
+          console.log('تم استلام تحديث Realtime:', payload.eventType, payload);
+          
+          // Call loadProductsData to refresh the data
+          if (loadProductsDataRef.current) {
+            console.log(`تم اكتشاف ${payload.eventType} للمنتج. جاري إعادة تحميل البيانات...`);
+            loadProductsDataRef.current();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('حالة اشتراك Supabase Realtime:', status);
+      });
+
+    // Cleanup function to remove the channel when the component unmounts
+    return () => {
+      console.log('تنظيف اشتراك Supabase Realtime');
+      supabase.removeChannel(channel);
+    };
+  }, []); // Run once at component mount
   
   // دالة للتحقق والمزامنة عند الحاجة
   const checkAndSyncIfNeeded = () => {
