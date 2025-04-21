@@ -1,14 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ProductCard from './ProductCard';
 import { Product } from '@/types';
-import { loadData } from '@/lib/localStorage';
 import { 
-  syncProductsFromSupabase, 
   loadProductsFromSupabase, 
   isOnline,
-  forceRefreshFromServer 
+  supabase
 } from '@/lib/supabase';
 
 interface ProductGridProps {
@@ -28,236 +26,159 @@ export default function ProductGrid({
 }: ProductGridProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
-  const [showSyncMessage, setShowSyncMessage] = useState(false);
+  const [isOffline, setIsOffline] = useState(!isOnline());
+  const loadProductsDataRef = useRef<() => Promise<void>>();
 
   useEffect(() => {
-    // تحميل المنتجات من التخزين المحلي الدائم
     const loadProductsData = async () => {
+      // Reset state at the beginning
       setLoading(true);
       
+      // Check if we're offline first
+      if (!isOnline()) {
+        setIsOffline(true);
+        setLoading(false);
+        return;
+      }
+      
+      // We're online, reset offline state
+      setIsOffline(false);
+      
       try {
-        let productData: Product[] = [];
+        console.log('Loading products from Supabase...');
+        const serverProducts = await loadProductsFromSupabase();
         
-        // دائماً محاولة تحميل البيانات من السيرفر أولاً إذا كان متصلاً بالإنترنت
-        if (isOnline()) {
-          try {
-            console.log('Trying to load products directly from server...');
-            const serverProducts = await loadProductsFromSupabase();
-            
-            if (serverProducts && serverProducts.length > 0) {
-              console.log('Successfully loaded products from server:', serverProducts.length);
-              // تصفية القيم الفارغة وإضافة الخصائص المطلوبة للتوافق مع النوع Product[]
-              productData = serverProducts
-                .filter(product => product !== null)
-                .map(product => ({
-                  ...product,
-                  packPrice: product.piecePrice * 6, // مثال: علبة تحتوي على 6 قطع
-                  boxPrice: product.piecePrice * product.boxQuantity
-                })) as Product[];
-              
-              // تحديث البيانات المحلية
-              localStorage.setItem('products', JSON.stringify(serverProducts));
-              setShowSyncMessage(true);
-              setTimeout(() => setShowSyncMessage(false), 3000);
-            } else {
-              console.log('No products found on server, falling back to local data');
-            }
-          } catch (error) {
-            console.error('Error loading products from server:', error);
-            // استمر باستخدام البيانات المحلية
-          }
-        }
-        
-        // إذا لم نحصل على بيانات من الخادم، نستخدم البيانات المحلية
-        if (productData.length === 0) {
-          console.log('Using local data...');
-          // محاولة تحميل البيانات من التخزين الدائم
-          const savedProducts = await loadData('products');
+        if (serverProducts && serverProducts.length > 0) {
+          console.log('Successfully loaded products from server:', serverProducts.length);
           
-          if (savedProducts && Array.isArray(savedProducts) && savedProducts.length > 0) {
-            console.log('Loaded products from persistent storage:', savedProducts.length);
-            // إضافة خصائص packPrice و boxPrice إذا لم تكن موجودة
-            productData = savedProducts.map((product: any) => ({
+          // Process the products - add packPrice and boxPrice
+          let processedProducts = serverProducts
+            .filter(product => product !== null)
+            .map(product => ({
               ...product,
-              packPrice: product.packPrice || product.piecePrice * 6,
-              boxPrice: product.boxPrice || product.piecePrice * product.boxQuantity
-            }));
-          } else {
-            // احتياطياً، نحاول من localStorage العادي
-            try {
-              const productsFromLS = localStorage.getItem('products');
-              if (productsFromLS) {
-                const parsedProducts = JSON.parse(productsFromLS);
-                if (parsedProducts && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
-                  console.log('Loaded products from localStorage:', parsedProducts.length);
-                  // إضافة خصائص packPrice و boxPrice إذا لم تكن موجودة
-                  productData = parsedProducts.map((product: any) => ({
-                    ...product,
-                    packPrice: product.packPrice || product.piecePrice * 6,
-                    boxPrice: product.boxPrice || product.piecePrice * product.boxQuantity
-                  }));
-                }
-              }
-            } catch (error) {
-              console.error('Error parsing products from localStorage:', error);
-            }
-          }
-        }
-        
-        // إذا وجدنا منتجات، نقوم بتصفيتها وعرضها
-        if (productData && Array.isArray(productData) && productData.length > 0) {
-          console.log('Processing products. Total count:', productData.length);
+              packPrice: product.piecePrice * 6, // مثال: علبة تحتوي على 6 قطع
+              boxPrice: product.piecePrice * product.boxQuantity
+            })) as Product[];
           
-          let filteredProducts = productData;
-          
-          // تطبيق التصفية حسب الفئة إذا كانت موجودة
+          // Apply category filter if needed
           if (filterByCategory) {
-            filteredProducts = filteredProducts.filter((product: Product) => 
+            processedProducts = processedProducts.filter((product: Product) => 
               product.categoryId && String(product.categoryId) === String(filterByCategory)
             );
-            console.log('Filtered by category. Remaining count:', filteredProducts.length);
+            console.log('Filtered by category. Remaining count:', processedProducts.length);
           }
           
-          // محاولة تحميل إعدادات المنتجات (غير مهمة جداً إذا فشلت)
-          try {
-            const savedSettings = await loadData('productSettings');
-            let localSettings = savedSettings || {};
+          // Filter new products if we're on the new products page
+          if (window.location.pathname.includes('/products/new')) {
+            const currentDate = new Date();
+            const newProductDays = 14; // Hard-coded instead of from settings
             
-            if (!savedSettings) {
-              try {
-                const settingsFromLS = localStorage.getItem('productSettings');
-                if (settingsFromLS) {
-                  localSettings = JSON.parse(settingsFromLS);
-                }
-              } catch (error) {
-                console.error('Error parsing settings from localStorage:', error);
-              }
-            }
-            
-            // طريقة تحديد المنتجات الجديدة بناءً على إعدادات المنتجات الجديدة
-            if (localSettings && window.location.pathname.includes('/products/new')) {
-              const currentDate = new Date();
-              // إضافة تحديد نوع لـ localSettings وضمان أن newProductDays موجودة
-              let newProductDays = (localSettings as {newProductDays?: number}).newProductDays || 14;
+            processedProducts = processedProducts.filter((product: Product) => {
+              if (!product.createdAt || !product.isNew) return false;
               
-              // تصفية المنتجات التي تم إنشاؤها خلال المدة المحددة فقط
-              filteredProducts = productData.filter((product: Product) => {
-                if (!product.createdAt || !product.isNew) return false;
-                
-                const createdDate = new Date(product.createdAt);
-                const diffTime = Math.abs(currentDate.getTime() - createdDate.getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
-                return diffDays <= newProductDays;
-              });
-              console.log('Filtered new products by date. Remaining count:', filteredProducts.length);
-            }
-          } catch (error) {
-            console.error('Error loading product settings:', error);
+              const createdDate = new Date(product.createdAt);
+              const diffTime = Math.abs(currentDate.getTime() - createdDate.getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              
+              return diffDays <= newProductDays;
+            });
+            console.log('Filtered new products by date. Remaining count:', processedProducts.length);
           }
-
-          // ترتيب المنتجات من الأحدث إلى الأقدم
-          filteredProducts.sort((a, b) => {
+          
+          // Sort products by date (newest first)
+          processedProducts.sort((a, b) => {
             const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
             const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return dateB - dateA; // ترتيب تنازلي (من الأحدث إلى الأقدم)
+            return dateB - dateA; 
           });
-
-          // تطبيق الحد على عدد المنتجات إذا كان موجودًا
+          
+          // Apply limit if specified
           if (limit && limit > 0) {
-            filteredProducts = filteredProducts.slice(0, limit);
-            console.log('Applied limit. Final count:', filteredProducts.length);
+            processedProducts = processedProducts.slice(0, limit);
+            console.log('Applied limit. Final count:', processedProducts.length);
           }
-
-          setProducts(filteredProducts);
+          
+          setProducts(processedProducts);
         } else {
-          console.log('No products found in any storage');
+          console.log('No products found on server');
           setProducts([]);
         }
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading products from server:', error);
         setProducts([]);
       } finally {
         setLoading(false);
       }
     };
-
+    
+    // Store the function in a ref so it can be called from the Supabase subscription handlers
+    loadProductsDataRef.current = loadProductsData;
+    
     loadProductsData();
     
-    // الاستماع لتغييرات التخزين والاتصال بالإنترنت
-    const handleStorageChange = () => {
-      console.log('Storage changed, reloading products');
-      setLastUpdate(Date.now());
-    };
-    
+    // Handle online/offline status changes
     const handleOnlineStatusChange = () => {
-      if (isOnline()) {
-        console.log('Connection restored. Syncing data...');
-        // محاولة مزامنة البيانات عند عودة الاتصال
-        try {
-          // استخدام await بداخل دالة async فورية للتعامل مع الوعد بشكل صحيح
-          (async () => {
-            try {
-              const serverData = await forceRefreshFromServer();
-              if (serverData && serverData.length > 0) {
-                console.log('تم تحديث البيانات بنجاح من السيرفر:', serverData.length);
-                // تحديث المنتجات مباشرة بدلاً من إعادة تحميلها
-                const filteredProducts = serverData
-                  .filter(p => p !== null)
-                  .map(product => ({
-                    ...product,
-                    packPrice: product.piecePrice * 6,
-                    boxPrice: product.piecePrice * product.boxQuantity
-                  })) as Product[];
-                
-                // تطبيق نفس المرشحات للعرض
-                let displayProducts = filteredProducts;
-                
-                if (filterByCategory) {
-                  displayProducts = displayProducts.filter((product: Product) => 
-                    product.categoryId && String(product.categoryId) === String(filterByCategory)
-                  );
-                }
-                
-                if (limit && limit > 0) {
-                  displayProducts = displayProducts.slice(0, limit);
-                }
-                
-                setProducts(displayProducts);
-                setShowSyncMessage(true);
-                setTimeout(() => setShowSyncMessage(false), 3000);
-              } else {
-                console.log('لم يتم العثور على بيانات في السيرفر، استخدام البيانات المحلية');
-                loadProductsData();
-              }
-            } catch (error) {
-              console.error('حدث خطأ أثناء تحديث البيانات من السيرفر:', error);
-              loadProductsData();
-            }
-          })();
-        } catch (error) {
-          console.error('Error syncing data on connection restore:', error);
-          loadProductsData();
-        }
+      const online = isOnline();
+      setIsOffline(!online);
+      
+      if (online) {
+        console.log('Connection restored. Loading fresh data...');
+        loadProductsData();
       } else {
-        console.log('Connection lost. Using local data only.');
+        console.log('Connection lost. Showing offline message.');
       }
     };
     
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('customStorageChange', handleStorageChange as EventListener);
+    // Listen for online/offline events
     window.addEventListener('online', handleOnlineStatusChange);
     window.addEventListener('offline', handleOnlineStatusChange);
     
+    // Clean up event listeners
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('customStorageChange', handleStorageChange as EventListener);
       window.removeEventListener('online', handleOnlineStatusChange);
       window.removeEventListener('offline', handleOnlineStatusChange);
     };
-  }, [limit, lastUpdate, filterByCategory]);
+  }, [limit, filterByCategory]);
 
+  // Set up Supabase Realtime subscription
+  useEffect(() => {
+    // Don't set up subscription if offline
+    if (isOffline) return;
+
+    console.log('Setting up Supabase Realtime subscription for products table');
+    
+    // Create a channel for postgres_changes on the products table
+    const channel = supabase
+      .channel('product-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'products'
+        },
+        (payload) => {
+          console.log('Received Realtime update:', payload.eventType, payload);
+          
+          // Call loadProductsData to refresh the data
+          if (loadProductsDataRef.current) {
+            console.log(`Product ${payload.eventType} detected. Reloading data...`);
+            loadProductsDataRef.current();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Supabase Realtime subscription status:', status);
+      });
+
+    // Cleanup function to remove the channel when the component unmounts
+    return () => {
+      console.log('Cleaning up Supabase Realtime subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [isOffline]); // Only re-subscribe when online/offline status changes
+
+  // Show loading state
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -265,7 +186,18 @@ export default function ProductGrid({
       </div>
     );
   }
+  
+  // Show offline message
+  if (isOffline) {
+    return (
+      <div className="text-center py-10 bg-gray-100 rounded-lg shadow-inner">
+        <p className="text-gray-700 font-medium text-lg">لا يوجد اتصال بالإنترنت</p>
+        <p className="text-gray-500 mt-2">يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى</p>
+      </div>
+    );
+  }
 
+  // Show empty state if no products
   if (products.length === 0) {
     return (
       <div className="text-center py-10">
@@ -274,24 +206,19 @@ export default function ProductGrid({
     );
   }
 
+  // Show products
   return (
     <div>
-      {showSyncMessage && (
-        <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-md text-sm">
-          تم تحديث البيانات من الخادم المركزي
-      </div>
-      )}
-      
       {title && (
         <div className="mb-6">
           <h2 className="text-2xl font-bold">{title}</h2>
         </div>
       )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {products.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </div>
     </div>
   );
 } 

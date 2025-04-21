@@ -804,12 +804,15 @@ export default function AdminProducts() {
         updatedProducts = [...products, updatedProduct];
       }
       
+      // أولاً نغلق النافذة لتحسين تجربة المستخدم
+      setIsModalOpen(false);
+      
+      // ثم نقوم بحفظ المنتجات ومزامنتها مع السيرفر في الخلفية
       await saveProducts(updatedProducts);
       
       // مزامنة التغييرات مع السيرفر
       await syncWithServerAfterChanges(updatedProducts);
       
-      setIsModalOpen(false);
       setIsLoading(false);
     } catch (error: any) {
       console.error('خطأ في تحديث المنتج:', error);
