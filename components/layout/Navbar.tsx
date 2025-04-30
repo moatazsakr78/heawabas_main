@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { FiMenu, FiX, FiHome, FiKey } from 'react-icons/fi';
 import AdminLoginModal from '@/components/admin/AdminLoginModal';
@@ -16,13 +17,20 @@ export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <nav className="bg-white shadow-md sticky top-0 z-50">
+    <nav className="bg-[#2A2A2A] shadow-md sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <div className="flex-shrink-0 flex items-center">
-              <Link href="/" className="text-2xl font-bold text-primary">
-                سنتر هي و بس
+            <div className="flex-shrink-0 flex items-center h-20">
+              <Link href="/" className="flex items-center">
+                <Image
+                  src="/images/hea.png"
+                  alt="سنتر هي و بس"
+                  width={180}
+                  height={80}
+                  className="h-20 w-auto max-h-20"
+                  priority
+                />
               </Link>
             </div>
           </div>
@@ -39,19 +47,19 @@ export default function Navbar() {
                     className={`inline-flex items-center px-1 pt-1 text-sm font-medium ${
                       isActive
                         ? 'text-primary border-b-2 border-primary'
-                        : 'text-gray-500 hover:text-gray-700 hover:border-b-2 hover:border-gray-300'
+                        : 'text-primary hover:text-primary-dark hover:border-b-2 hover:border-primary'
                     }`}
                   >
-                    <item.icon className="ml-2" />
+                    <item.icon className="ml-2 text-primary" />
                     {item.name}
                   </Link>
                 );
               })}
               <button 
                 onClick={() => setIsAdminModalOpen(true)}
-                className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:border-b-2 hover:border-gray-300"
+                className="inline-flex items-center px-1 pt-1 text-sm font-medium text-primary hover:text-primary-dark hover:border-b-2 hover:border-primary"
               >
-                <FiKey className="ml-2" />
+                <FiKey className="ml-2 text-primary" />
                 سنتر هي و بس
               </button>
             </div>
@@ -64,7 +72,7 @@ export default function Navbar() {
               className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary"
             >
               <span className="sr-only">Open main menu</span>
-              {isOpen ? <FiX className="block h-6 w-6" /> : <FiMenu className="block h-6 w-6" />}
+              {isOpen ? <FiX className="block h-6 w-6 text-primary" /> : <FiMenu className="block h-6 w-6 text-primary" />}
             </button>
           </div>
         </div>
@@ -82,11 +90,11 @@ export default function Navbar() {
                 className={`block px-3 py-2 rounded-md text-base font-medium flex items-center ${
                   isActive
                     ? 'bg-primary text-white'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    : 'text-primary hover:bg-primary/10'
                 }`}
                 onClick={() => setIsOpen(false)}
               >
-                <item.icon className="ml-2" />
+                <item.icon className="ml-2 text-primary" />
                 {item.name}
               </Link>
             );
@@ -97,9 +105,9 @@ export default function Navbar() {
               setIsAdminModalOpen(true);
               setIsOpen(false);
             }}
-            className="block w-full text-right px-3 py-2 rounded-md text-base font-medium flex items-center text-gray-700 hover:bg-gray-50"
+            className="block w-full text-right px-3 py-2 rounded-md text-base font-medium flex items-center text-primary hover:bg-primary/10"
           >
-            <FiKey className="ml-2" />
+            <FiKey className="ml-2 text-primary" />
             سنتر هي و بس
           </button>
         </div>

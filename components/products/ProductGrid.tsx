@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ProductCard from './ProductCard';
 import { Product } from '@/types';
 import { 
@@ -17,6 +17,10 @@ interface ProductGridProps {
   filterByCategory?: string;
 }
 
+// يتم عرض 8 منتجات في البداية، ثم تحميل المزيد عند التمرير
+const INITIAL_PRODUCTS_COUNT = 8;
+const PRODUCTS_PER_PAGE = 8;
+
 export default function ProductGrid({
   title,
   showViewAll = false,
@@ -24,11 +28,19 @@ export default function ProductGrid({
   limit,
   filterByCategory,
 }: ProductGridProps) {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [visibleProducts, setVisibleProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [isOffline, setIsOffline] = useState(!isOnline());
+  const [productPage, setProductPage] = useState(1);
+  
   const loadProductsDataRef = useRef<() => Promise<void>>();
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
+  // تحميل المنتجات من السيرفر
   useEffect(() => {
     const loadProductsData = async () => {
       // Reset state at the beginning
@@ -98,14 +110,29 @@ export default function ProductGrid({
             console.log('Applied limit. Final count:', processedProducts.length);
           }
           
-          setProducts(processedProducts);
+          // تعيين كل المنتجات
+          setAllProducts(processedProducts);
+          
+          // تعيين المنتجات المرئية في الصفحة الأولى
+          const initialProducts = processedProducts.slice(0, INITIAL_PRODUCTS_COUNT);
+          setVisibleProducts(initialProducts);
+          
+          // تحديد ما إذا كان هناك المزيد من المنتجات للتحميل
+          setHasMore(processedProducts.length > INITIAL_PRODUCTS_COUNT);
+          
+          // إعادة تعيين رقم الصفحة
+          setProductPage(1);
         } else {
           console.log('No products found on server');
-          setProducts([]);
+          setAllProducts([]);
+          setVisibleProducts([]);
+          setHasMore(false);
         }
       } catch (error) {
         console.error('Error loading products from server:', error);
-        setProducts([]);
+        setAllProducts([]);
+        setVisibleProducts([]);
+        setHasMore(false);
       } finally {
         setLoading(false);
       }
@@ -139,6 +166,63 @@ export default function ProductGrid({
       window.removeEventListener('offline', handleOnlineStatusChange);
     };
   }, [limit, filterByCategory]);
+
+  // دالة لتحميل المزيد من المنتجات
+  const loadMoreProducts = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
+    
+    // حساب نطاق المنتجات الجديدة للتحميل
+    const startIndex = productPage * PRODUCTS_PER_PAGE;
+    const endIndex = startIndex + PRODUCTS_PER_PAGE;
+    
+    // الحصول على المنتجات الجديدة من القائمة الكاملة
+    const newProducts = allProducts.slice(startIndex, endIndex);
+    
+    // إضافة المنتجات الجديدة إلى القائمة المرئية
+    setVisibleProducts(prev => [...prev, ...newProducts]);
+    
+    // زيادة رقم الصفحة
+    setProductPage(prev => prev + 1);
+    
+    // التحقق مما إذا كان هناك المزيد من المنتجات
+    setHasMore(endIndex < allProducts.length);
+    
+    setLoadingMore(false);
+  }, [productPage, allProducts, loadingMore, hasMore]);
+
+  // إعداد مراقب التقاطع للتمرير اللانهائي
+  useEffect(() => {
+    // إزالة المراقب السابق إذا كان موجودًا
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+    
+    // إنشاء مراقب جديد
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !loadingMore) {
+          loadMoreProducts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    
+    // بدء المراقبة إذا كان عنصر التحميل موجودًا
+    const loadMoreElement = loadMoreRef.current;
+    if (loadMoreElement) {
+      observerRef.current.observe(loadMoreElement);
+    }
+    
+    // تنظيف عند الإلغاء
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [loadMoreProducts, hasMore, loadingMore]);
 
   // Set up Supabase Realtime subscription
   useEffect(() => {
@@ -198,27 +282,60 @@ export default function ProductGrid({
   }
 
   // Show empty state if no products
-  if (products.length === 0) {
+  if (visibleProducts.length === 0) {
     return (
-      <div className="text-center py-10">
-        <p className="text-gray-500">لا توجد منتجات متاحة حاليًا</p>
+      <div className="p-8">
+        {title && <h2 className="text-2xl font-bold mb-6 text-center">{title}</h2>}
+        <div className="text-center py-16 bg-gray-50 rounded-lg">
+          <p className="text-gray-500 mb-4">لا توجد منتجات متاحة حاليًا</p>
+        </div>
       </div>
     );
   }
 
-  // Show products
+  // Display products
   return (
-    <div>
+    <div className="p-4 md:p-8">
       {title && (
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold">{title}</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl md:text-2xl font-bold">{title}</h2>
+          {showViewAll && (
+            <a href={viewAllLink} className="text-primary hover:underline font-medium">
+              عرض الكل
+            </a>
+          )}
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {products.map((product) => (
-          <ProductCard key={product.id} product={product} />
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+        {visibleProducts.map((product, index) => (
+          <ProductCard 
+            key={product.id} 
+            product={product} 
+            // إعطاء الأولوية فقط للمنتجات الثمانية الأولى
+            priority={index < INITIAL_PRODUCTS_COUNT}
+          />
         ))}
       </div>
+      
+      {/* عنصر يستخدم للتمرير اللانهائي */}
+      {hasMore && (
+        <div 
+          ref={loadMoreRef} 
+          className="flex justify-center mt-8 py-4"
+        >
+          {loadingMore ? (
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+          ) : (
+            <button 
+              onClick={loadMoreProducts}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors"
+            >
+              تحميل المزيد
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 } 

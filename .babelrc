@@ -1,0 +1,11 @@
+{
+  "presets": ["next/babel"],
+  "plugins": [
+    ["module-resolver", {
+      "alias": {
+        "https://deno.land": "@/empty-module",
+        "https://esm.sh": "@/empty-module"
+      }
+    }]
+  ]
+} 

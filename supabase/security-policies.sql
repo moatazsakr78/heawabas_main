@@ -85,3 +85,43 @@ CREATE POLICY "السماح للمشرفين بحذف الإعدادات"
 ON app_settings FOR DELETE
 TO authenticated
 USING (true);
+
+-- إنشاء Storage bucket خاص بصور المنتجات
+-- هذه العملية تتم عادة من خلال واجهة Supabase أو عن طريق StorageAPI
+-- إن التعليمات البرمجية التالية هي فقط للتوثيق
+
+-- أولاً: إنشاء bucket لصور المنتجات
+-- يتم تنفيذ هذا من خلال API أو واجهة Supabase
+-- CREATE BUCKET product-images;
+
+-- ثانياً: إنشاء سياسات الوصول لـ Storage
+-- السماح للجميع بقراءة صور المنتجات
+CREATE POLICY "السماح للجميع بقراءة صور المنتجات"
+ON storage.objects FOR SELECT
+TO anon
+USING (bucket_id = 'product-images');
+
+-- السماح للمستخدمين المسجلين فقط برفع الصور
+CREATE POLICY "السماح للمستخدمين المسجلين برفع صور المنتجات"
+ON storage.objects FOR INSERT 
+TO authenticated
+WITH CHECK (bucket_id = 'product-images');
+
+-- السماح للمستخدمين المسجلين بتحديث الصور التي قاموا برفعها
+CREATE POLICY "السماح للمستخدمين المسجلين بتحديث صور المنتجات"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (bucket_id = 'product-images');
+
+-- السماح للمستخدمين المسجلين بحذف الصور التي قاموا برفعها
+CREATE POLICY "السماح للمستخدمين المسجلين بحذف صور المنتجات"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (bucket_id = 'product-images');
+
+-- إنشاء محفز (trigger) عند رفع الصور لتطبيق إعدادات الـ cache
+CREATE TRIGGER optimize_product_image_trigger
+AFTER INSERT ON storage.objects
+FOR EACH ROW
+WHEN (NEW.bucket_id = 'product-images')
+EXECUTE FUNCTION optimize_image_on_upload();

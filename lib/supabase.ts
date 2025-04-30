@@ -778,4 +778,50 @@ export async function resetAndSyncProducts(products: any[]) {
     // تسجيل وإعادة إرسال الخطأ بتنسيق موحد
     return logSupabaseError(error);
   }
+}
+
+// ضمان وجود bucket التخزين عند بدء التطبيق
+export async function ensureStorageBucketExists() {
+  if (typeof window === 'undefined') {
+    // لا نريد تنفيذ هذا على جانب العميل
+    return;
+  }
+
+  try {
+    console.log('Checking storage bucket existence...');
+    
+    // التحقق من وجود الـ bucket
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return;
+    }
+    
+    const bucketExists = buckets.some(bucket => bucket.name === 'product-images');
+    let bucketCreated = false;
+    
+    // إنشاء bucket إذا لم يكن موجودًا
+    if (!bucketExists) {
+      console.log('Creating product-images bucket...');
+      const { error: createError } = await supabase.storage
+        .createBucket('product-images', {
+          public: true,
+          fileSizeLimit: 10485760, // 10 MB
+          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+        });
+
+      if (createError) {
+        console.error('Error creating bucket:', createError);
+        throw new Error(`فشل في إنشاء bucket: ${createError.message}`);
+      }
+
+      console.log('تم إنشاء bucket product-images بنجاح');
+      
+      // ملاحظة: الـ bucket يجب أن يكون عاماً بناءً على الخيارات المحددة عند الإنشاء
+      // API setPublic لم تعد مدعومة، يمكن التحقق من الإعدادات في لوحة التحكم في Supabase
+    }
+  } catch (error) {
+    console.error('Unexpected error ensuring storage bucket:', error);
+  }
 } 

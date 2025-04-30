@@ -5,8 +5,8 @@ import Footer from '@/components/layout/Footer';
 import ClientInitProvider from '@/components/storage/ClientInitProvider';
 
 export const metadata: Metadata = {
-  title: 'Product Catalog | Your Brand Name',
-  description: 'Browse through our wide range of products in this online catalog',
+  title: 'سنتر هي و بس | كتالوج المنتجات',
+  description: 'كتالوج شامل لجميع منتجاتنا المميزة بتصنيفات متعددة وتحديثات دورية',
 };
 
 export default function RootLayout({
@@ -16,7 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ar" dir="rtl">
-      <body>
+      <body className="bg-[#c5c5c5]">
         <div className="min-h-screen flex flex-col">
           <ClientInitProvider />
           <Navbar />

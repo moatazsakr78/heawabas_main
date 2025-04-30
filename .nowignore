@@ -1,0 +1,4 @@
+# Supabase
+/supabase/functions/
+/supabase/migrations/
+/supabase/config.toml 

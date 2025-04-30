@@ -20,6 +20,9 @@ import { toast } from '@/components/ui/use-toast';
 import { Category as CategoryType } from '@/types';
 import { Plus, Trash, Edit, Save } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { uploadProductImage, deleteProductImage } from '@/lib/images';
+import { OptimizedImg } from '@/components/ui/OptimizedImage';
+import { addVersionToImageUrl } from '@/lib/image-utils';
 
 // تعريف نوع Category هنا بدلاً من استيراده
 interface Category {
@@ -133,6 +136,16 @@ export default function AdminProducts() {
         return;
       }
       
+      // التأكد من وجود bucket التخزين قبل تحميل البيانات
+      try {
+        // إستيراد الدالة بشكل ديناميكي لتجنب مشاكل في البناء
+        const { ensureStorageBucketExists } = await import('@/lib/supabase');
+        await ensureStorageBucketExists();
+      } catch (bucketError) {
+        console.error('Error ensuring storage bucket exists:', bucketError);
+        // استمر في تحميل البيانات حتى لو فشلت عملية التأكد من الـ bucket
+      }
+      
       // تحميل البيانات
       await loadProductsData();
       await loadCategoriesData();
@@ -197,7 +210,17 @@ export default function AdminProducts() {
       }
       
       console.log('تم تحميل المنتجات من Supabase بنجاح. عدد المنتجات:', products.length);
-      setProducts(products);
+      
+      // يتم استلام المنتجات مرتبة من الخادم حسب تاريخ الإنشاء (الأحدث أولاً)
+      // ولكن نقوم بالترتيب مرة أخرى هنا للتأكد من عرض المنتجات الأحدث في الأعلى
+      const sortedProducts = [...products].sort((a, b) => {
+        // استخدام تاريخ الإنشاء للترتيب (من الأحدث للأقدم)
+        const dateA = new Date(a.created_at || a.createdAt || 0).getTime();
+        const dateB = new Date(b.created_at || b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+      
+      setProducts(sortedProducts);
     } catch (error: any) {
       console.error('خطأ غير متوقع أثناء تحميل المنتجات:', error);
       setNotification({
@@ -303,6 +326,44 @@ export default function AdminProducts() {
     }
 
     try {
+      console.log('Saving product with image URL:', product.imageUrl);
+      
+      // معالجة حالة الصور
+      let imageUrl = product.imageUrl;
+      
+      // إذا كانت الصورة بتنسيق base64، نحتاج إلى رفعها إلى Supabase أولاً
+      if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('data:image')) {
+        try {
+          console.log('Detected base64 image, uploading via API...');
+          
+          // استيراد الدالة بشكل ديناميكي
+          const { uploadProductImageViaAPI } = await import('@/lib/images');
+          
+          // رفع الصورة عبر API الخادم
+          imageUrl = await uploadProductImageViaAPI(imageUrl, product.id);
+          console.log('Image uploaded to Supabase via API, URL:', imageUrl);
+        } catch (imageError: any) {
+          console.error('Failed to upload base64 image:', imageError);
+          setNotification({
+            message: `فشل في رفع الصورة: ${imageError.message || 'خطأ غير معروف'}`,
+            type: 'error'
+          });
+          
+          // استخدام قيمة فارغة بدلاً من الصورة
+          imageUrl = '';
+        }
+      }
+      
+      // معالجة حالة عدم وجود صورة أو الصورة الافتراضية
+      if (!imageUrl || imageUrl === "لا توجد صورة") {
+        console.log('No image provided, setting to empty string');
+        imageUrl = ''; // حفظ القيمة كسلسلة فارغة في قاعدة البيانات
+      }
+      
+      // تاريخ الإنشاء والتحديث يتم استخدامهما في ترتيب المنتجات (الأحدث أولاً)
+      // لذلك المنتجات الجديدة ستظهر دائمًا في الأعلى تلقائيًا
+      const currentDate = new Date().toISOString();
+      
       // إعداد المنتج بالتنسيق المناسب للقاعدة
       const dbProduct = {
         id: product.id,
@@ -310,12 +371,14 @@ export default function AdminProducts() {
         product_code: product.productCode,
         box_quantity: product.boxQuantity,
         piece_price: product.piecePrice,
-        image_url: product.imageUrl,
+        image_url: imageUrl, // استخدام القيمة المعالجة
         is_new: product.isNew,
-        created_at: product.createdAt || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: product.createdAt || currentDate,
+        updated_at: currentDate,
         category_id: null // إذا كان هناك حاجة لتعيين فئة
       };
+
+      console.log('Final product data to save:', dbProduct);
 
       const { data, error } = await supabase
         .from('products')
@@ -357,6 +420,20 @@ export default function AdminProducts() {
     }
 
     try {
+      // Primero obtenemos el producto para saber si tiene imagen
+      const productToDelete = products.find(p => p.id === id);
+      
+      // Si el producto tiene una URL de imagen que apunta a Supabase Storage
+      if (productToDelete?.imageUrl && productToDelete.imageUrl.includes('supabase.co/storage')) {
+        try {
+          // Intentamos eliminar la imagen antes de eliminar el producto
+          await deleteProductImage(productToDelete.imageUrl);
+        } catch (imageError) {
+          console.error('خطأ في حذف صورة المنتج:', imageError);
+          // Continuamos con la eliminación del producto incluso si falla la eliminación de la imagen
+        }
+      }
+
       const { error } = await supabase
         .from('products')
         .delete()
@@ -484,16 +561,73 @@ export default function AdminProducts() {
     fileInputRef.current?.click();
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // تحويل الصورة إلى تنسيق base64 لتخزينها بشكل دائم
+    if (!file) return;
+    
+    // التحقق من نوع الملف
+    if (!file.type.startsWith('image/')) {
+      setNotification({
+        message: 'يرجى تحميل ملف صورة صالح',
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    // التحقق من حجم الملف (الحد الأقصى 10 ميجابايت)
+    if (file.size > 10 * 1024 * 1024) {
+      setNotification({
+        message: 'حجم الصورة كبير جدًا (الحد الأقصى: 10 ميجابايت)',
+        type: 'error'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    
+    try {
+      // إنشاء معاينة محلية للصورة بدون رفعها إلى Supabase
       const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setFormData({ ...formData, imageUrl: base64String });
+      
+      reader.onload = (event) => {
+        // تحديث حالة النموذج فقط مع معاينة الصورة محلياً
+        setFormData({ 
+          ...formData, 
+          imageUrl: event.target?.result as string 
+        });
+        
+        setNotification({
+          message: 'تم تحميل الصورة بنجاح. سيتم رفعها عند حفظ المنتج.',
+          type: 'success'
+        });
+        setTimeout(() => setNotification(null), 3000);
       };
+      
+      reader.onerror = () => {
+        setNotification({
+          message: 'حدث خطأ أثناء قراءة الصورة',
+          type: 'error'
+        });
+        setTimeout(() => setNotification(null), 3000);
+      };
+      
       reader.readAsDataURL(file);
+      
+    } catch (error: any) {
+      console.error('خطأ في معالجة الصورة:', error);
+      
+      // عرض رسالة الخطأ الصديقة للمستخدم
+      let errorMessage = 'خطأ غير معروف';
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      setNotification({
+        message: `خطأ في معالجة الصورة: ${errorMessage}`,
+        type: 'error'
+      });
     }
   };
 
@@ -524,16 +658,107 @@ export default function AdminProducts() {
         return;
       }
       
-      // الحفاظ على تاريخ الإنشاء الأصلي إذا كان موجودًا، وإلا تعيين تاريخ حالي
+      // حفظ القيم المستخدمة في المنتج
+      let finalImageUrl = formData.imageUrl;
+      const productId = currentProduct?.id || Date.now().toString();
+      
+      // إذا كان هناك ملف صورة تم تحميله ولكن لم يتم رفعه بعد
+      if (fileInputRef.current && fileInputRef.current.files && fileInputRef.current.files.length > 0) {
+        try {
+          setNotification({
+            message: 'جاري رفع الصورة...',
+            type: 'info'
+          });
+          
+          // استيراد الدالة الجديدة بشكل ديناميكي
+          const { uploadProductImageViaAPI } = await import('@/lib/images');
+          
+          // رفع الصورة عبر API الخادم (باستخدام service_role)
+          finalImageUrl = await uploadProductImageViaAPI(fileInputRef.current.files[0], productId);
+          console.log('تم رفع الصورة بنجاح، الرابط:', finalImageUrl);
+          
+          // تحديث الواجهة مع عنوان URL للصورة الجديدة
+          setFormData(prevData => ({
+            ...prevData,
+            imageUrl: finalImageUrl
+          }));
+        } catch (uploadError: any) {
+          console.error('فشل في رفع الصورة:', uploadError);
+          setNotification({
+            message: `فشل في رفع الصورة: ${uploadError.message || 'خطأ غير معروف'}`,
+            type: 'error'
+          });
+          
+          // السؤال ما إذا كان المستخدم يريد الاستمرار بدون صورة
+          if (!window.confirm('فشل في رفع الصورة. هل تريد الاستمرار في حفظ المنتج بدون صورة؟')) {
+            setIsLoading(false);
+            return;
+          }
+          
+          // إذا استمر المستخدم، نستخدم قيمة فارغة بدلاً من الصورة
+          finalImageUrl = '';
+        }
+      } else if (typeof finalImageUrl === 'string' && finalImageUrl.startsWith('data:image')) {
+        try {
+          setNotification({
+            message: 'جاري رفع الصورة...',
+            type: 'info'
+          });
+          
+          // استيراد الدالة الجديدة بشكل ديناميكي
+          const { uploadProductImageViaAPI } = await import('@/lib/images');
+          
+          // رفع الصورة عبر API الخادم (باستخدام service_role)
+          finalImageUrl = await uploadProductImageViaAPI(finalImageUrl, productId);
+          console.log('تم رفع الصورة (base64) بنجاح، الرابط:', finalImageUrl);
+        } catch (uploadError: any) {
+          console.error('فشل في رفع الصورة (base64):', uploadError);
+          setNotification({
+            message: `فشل في رفع الصورة: ${uploadError.message || 'خطأ غير معروف'}`,
+            type: 'error'
+          });
+          
+          // السؤال ما إذا كان المستخدم يريد الاستمرار بدون صورة
+          if (!window.confirm('فشل في رفع الصورة. هل تريد الاستمرار في حفظ المنتج بدون صورة؟')) {
+            setIsLoading(false);
+            return;
+          }
+          
+          // إذا استمر المستخدم، نستخدم قيمة فارغة بدلاً من الصورة
+          finalImageUrl = '';
+        }
+      }
+      
+      // Si estamos actualizando un producto y cambiando su imagen
+      if (currentProduct && currentProduct.imageUrl && 
+          finalImageUrl && finalImageUrl !== "لا توجد صورة" &&
+          finalImageUrl !== currentProduct.imageUrl &&
+          currentProduct.imageUrl.includes('supabase.co/storage')) {
+        try {
+          // استيراد الدالة بشكل ديناميكي
+          const { deleteProductImage } = await import('@/lib/images');
+          
+          // Eliminar la imagen anterior
+          await deleteProductImage(currentProduct.imageUrl);
+        } catch (error) {
+          console.error('خطأ في حذف الصورة القديمة:', error);
+          // Continuamos con la actualización incluso si falla la eliminación
+        }
+      }
+      
+      // تواريخ الإنشاء والتحديث تستخدم في ترتيب المنتجات (الأحدث أولاً في القائمة)
       const currentDate = new Date().toISOString();
+      
+      // الحفاظ على تاريخ الإنشاء الأصلي إذا كان موجودًا، وإلا تعيين تاريخ حالي
       const updatedProduct = {
         ...formData,
-        id: currentProduct?.id || Date.now().toString(),
+        id: productId,
         createdAt: currentProduct?.createdAt || currentDate,
         created_at: currentProduct?.created_at || currentDate,
         updated_at: currentDate,
         boxQuantity: boxQuantity,
         piecePrice: piecePrice,
+        imageUrl: finalImageUrl, // استخدام الرابط النهائي للصورة
       };
 
       // أولاً نغلق النافذة لتحسين تجربة المستخدم
@@ -543,6 +768,11 @@ export default function AdminProducts() {
       const success = await saveProductToSupabase(updatedProduct);
       
       if (success) {
+        // إعادة تعيين مرجع ملف الإدخال
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        
         // سيتم تحديث الواجهة تلقائياً من خلال اشتراك Realtime
         setNotification({
           message: `تم ${currentProduct ? 'تحديث' : 'إضافة'} المنتج بنجاح`,
@@ -659,11 +889,20 @@ export default function AdminProducts() {
             {products.map((product) => (
               <tr key={product.id}>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="h-10 w-10 rounded-full"
-                  />
+                  {product.imageUrl ? (
+                    <OptimizedImg
+                      src={product.imageUrl}
+                      alt={product.name}
+                      className="h-10 w-10 rounded-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = 'https://via.placeholder.com/40?text=No+Image';
+                      }}
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
+                      <span className="text-xs text-gray-500">لا توجد صورة</span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {product.name}
@@ -699,11 +938,20 @@ export default function AdminProducts() {
         {products.map((product) => (
           <div key={product.id} className="bg-white rounded-lg shadow-md p-4">
             <div className="flex items-center gap-4 mb-3">
-              <img
-                src={product.imageUrl}
-                alt={product.name}
-                className="h-16 w-16 rounded-md object-cover"
-              />
+              {product.imageUrl ? (
+                <OptimizedImg
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="h-16 w-16 rounded-md object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = 'https://via.placeholder.com/64?text=No+Image';
+                  }}
+                />
+              ) : (
+                <div className="h-16 w-16 rounded-md bg-gray-200 flex items-center justify-center">
+                  <span className="text-xs text-gray-500">لا توجد صورة</span>
+                </div>
+              )}
               <div className="flex-1">
                 <h3 className="font-bold text-lg">{product.name}</h3>
                 <p className="text-gray-600 text-sm">كود: {product.productCode}</p>
@@ -861,7 +1109,7 @@ export default function AdminProducts() {
                 <div className="mt-1 flex flex-col sm:flex-row items-center gap-4">
                   {formData.imageUrl ? (
                     <div className="relative">
-                      <img 
+                      <OptimizedImg 
                         src={formData.imageUrl} 
                         alt="صورة المنتج" 
                         className="h-32 w-32 object-cover rounded-md" 

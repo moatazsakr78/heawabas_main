@@ -191,7 +191,7 @@ export default function ProductPage() {
         <span className="text-gray-600">{product.name}</span>
       </div>
 
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
+      <div className="bg-[#D7D7D7] rounded-lg shadow-lg overflow-hidden mb-8">
         <div className="grid md:grid-cols-2 gap-6 p-6">
           {/* صورة المنتج */}
           <div className="flex justify-center items-center bg-gray-50 rounded-lg p-6">
